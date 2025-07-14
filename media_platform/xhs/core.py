@@ -453,10 +453,15 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 proxy=playwright_proxy,  # type: ignore
                 viewport={"width": 1920, "height": 1080},
                 user_agent=user_agent,
+                args=["--disable-gpu", "--disable-software-rasterizer", "--disable-dev-shm-usage"],
             )
             return browser_context
         else:
-            browser = await chromium.launch(headless=headless, proxy=playwright_proxy)  # type: ignore
+            browser = await chromium.launch(
+                headless=headless, 
+                proxy=playwright_proxy,
+                args=["--disable-gpu", "--disable-software-rasterizer", "--disable-dev-shm-usage"]
+            )  # type: ignore
             browser_context = await browser.new_context(
                 viewport={"width": 1920, "height": 1080}, user_agent=user_agent
             )
