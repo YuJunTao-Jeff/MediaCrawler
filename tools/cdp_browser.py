@@ -43,11 +43,37 @@ class CDPBrowserManager:
         启动浏览器并通过CDP连接
         """
         try:
+            # 2. 获取调试端口
+            self.debug_port = config.CDP_DEBUG_PORT
+
+            # 检查是否要连接已存在的浏览器
+            if config.CONNECT_EXISTING_BROWSER:
+                utils.logger.info(f"[CDPBrowserManager] 尝试连接到已存在的浏览器 (端口: {self.debug_port})")
+                
+                # 测试是否已有浏览器在运行
+                if await self._test_cdp_connection(self.debug_port):
+                    utils.logger.info("[CDPBrowserManager] 发现已运行的浏览器，直接连接")
+                    # 4. 通过CDP连接
+                    await self._connect_via_cdp(playwright)
+                    
+                    # 5. 创建浏览器上下文
+                    browser_context = await self._create_browser_context(
+                        playwright_proxy, user_agent
+                    )
+                    
+                    self.browser_context = browser_context
+                    return browser_context
+                else:
+                    utils.logger.warning(f"[CDPBrowserManager] 端口 {self.debug_port} 上没有发现运行中的浏览器")
+                    raise RuntimeError(f"未找到运行在端口 {self.debug_port} 的浏览器实例。请先手动启动浏览器：\n"
+                                     f"DISPLAY=:0 {config.CUSTOM_BROWSER_PATH} --remote-debugging-port={self.debug_port} --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage &")
+
+            # 自动启动模式
             # 1. 检测浏览器路径
             browser_path = await self._get_browser_path()
 
-            # 2. 获取可用端口
-            self.debug_port = self.launcher.find_available_port(config.CDP_DEBUG_PORT)
+            # 获取可用端口（如果当前端口被占用）
+            self.debug_port = self.launcher.find_available_port(self.debug_port)
 
             # 3. 启动浏览器
             await self._launch_browser(browser_path, headless)

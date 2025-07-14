@@ -57,6 +57,10 @@ ENABLE_CDP_MODE = True
 # 如果端口被占用，系统会自动尝试下一个可用端口
 CDP_DEBUG_PORT = 9222
 
+# 是否连接到已存在的浏览器实例（而不是启动新的）
+# 设置为True时，将尝试连接到端口上已运行的浏览器
+CONNECT_EXISTING_BROWSER = True
+
 # 自定义浏览器路径（可选）
 # 如果为空，系统会自动检测Chrome/Edge的安装路径
 # Windows示例: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
