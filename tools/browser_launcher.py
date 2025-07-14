@@ -130,18 +130,23 @@ class BrowserLauncher:
             "--disable-features=VizDisplayCompositor",
             "--disable-dev-shm-usage",  # 避免共享内存问题
             "--no-sandbox",  # 在CDP模式下关闭沙箱
+            # WSL 兼容性参数
+            "--disable-gpu", 
+            "--disable-software-rasterizer",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-extensions",
+            "--disable-plugins-discovery",
+            "--disable-default-apps"
         ]
         
         # 无头模式
         if headless:
             args.extend([
                 "--headless",
-                "--disable-gpu",
             ])
         else:
-            # 非无头模式下也保持一些稳定性参数
+            # 非无头模式下保持一些稳定性参数
             args.extend([
-                "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
             ])
         
