@@ -11,7 +11,7 @@
 
 # 基础配置
 PLATFORM = "xhs"
-KEYWORDS = "爱普恩,澳鹏大连,澳鹏无锡,澳鹏科技,澳鹏中国,澳鹏数据,澳鹏重庆"  # 关键词搜索配置，以英文逗号分隔
+KEYWORDS = "appen,澳鹏,田小鹏爱普恩,澳鹏大连,澳鹏无锡,澳鹏科技,澳鹏中国,澳鹏数据,澳鹏重庆"  # 关键词搜索配置，以英文逗号分隔
 LOGIN_TYPE = "qrcode"  # qrcode or phone or cookie
 COOKIES = ""
 # 具体值参见media_platform.xxx.field下的枚举值，暂时只支持小红书
