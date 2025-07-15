@@ -50,6 +50,10 @@ echo
 nohup $CHROME_PATH \
   --remote-debugging-port=$CDP_PORT \
   --user-data-dir="$USER_DATA_DIR" \
+  --no-sandbox \
+  --disable-gpu \
+  --disable-software-rasterizer \
+  --disable-dev-shm-usage \
   --no-first-run \
   --no-default-browser-check \
   --disable-background-timer-throttling \
