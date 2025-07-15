@@ -1,9 +1,18 @@
 #!/bin/bash
 
 # MediaCrawler 启动脚本
-# 使用 CDP 模式爬取小红书数据
+# 支持参数透传到 Python main.py
 
-echo "🚀 启动 MediaCrawler (小红书爬虫)"
+# 获取所有传入的参数
+SCRIPT_ARGS="$@"
+
+# 动态显示平台信息
+if [[ "$SCRIPT_ARGS" == *"--platform"* ]]; then
+    PLATFORM=$(echo "$SCRIPT_ARGS" | grep -o -- '--platform [^ ]*' | cut -d' ' -f2)
+    echo "🚀 启动 MediaCrawler (${PLATFORM} 爬虫)"
+else
+    echo "🚀 启动 MediaCrawler (默认配置)"
+fi
 echo "📍 当前目录: $(pwd)"
 echo "⏰ 启动时间: $(date)"
 echo
@@ -30,12 +39,15 @@ fi
 echo
 
 echo "🔧 配置信息:"
-echo "   - 平台: 小红书 (xhs)"
-echo "   - 登录方式: 二维码登录"
-echo "   - 爬取类型: 关键词搜索"
-echo "   - 关键词: appen,澳鹏,田小鹏,爱普恩,澳鹏大连,澳鹏无锡,澳鹏科技,澳鹏中国,澳鹏数据,澳鹏重庆"
-echo "   - CDP 模式: 已启用"
-echo "   - 数据保存: MySQL 数据库"
+if [[ -n "$SCRIPT_ARGS" ]]; then
+    echo "   - 使用参数: $SCRIPT_ARGS"
+else
+    echo "   - 平台: 小红书 (xhs)"
+    echo "   - 登录方式: 二维码登录"
+    echo "   - 爬取类型: 关键词搜索"
+    echo "   - 关键词: appen,澳鹏,田小鹏,爱普恩,澳鹏大连,澳鹏无锡,澳鹏科技,澳鹏中国,澳鹏数据,澳鹏重庆"
+    echo "   - 数据保存: MySQL 数据库"
+fi
 echo
 
 # 检查浏览器是否已启动
@@ -65,14 +77,15 @@ fi
 echo
 echo "🚀 启动 MediaCrawler..."
 
-# # 初始化数据库表结构（如果需要）
-# if ! mysql -u root -e "USE media_crawler; SHOW TABLES;" 2>/dev/null | grep -q "xhs_note"; then
-#     echo "🗄️ 初始化数据库表结构..."
-#     python db.py
-# fi
 
 # 启动爬虫
-python main.py --platform xhs --lt qrcode --type search
+if [[ -n "$SCRIPT_ARGS" ]]; then
+    echo "🔧 使用自定义参数启动..."
+    python main.py $SCRIPT_ARGS
+else
+    echo "🔧 使用默认配置启动..."
+    python main.py --platform xhs --lt qrcode --type search
+fi
 CRAWLER_EXIT_CODE=$?
 
 echo
