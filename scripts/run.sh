@@ -65,11 +65,11 @@ fi
 echo
 echo "🚀 启动 MediaCrawler..."
 
-# 初始化数据库表结构（如果需要）
-if ! mysql -u root -e "USE media_crawler; SHOW TABLES;" 2>/dev/null | grep -q "xhs_note"; then
-    echo "🗄️ 初始化数据库表结构..."
-    python db.py
-fi
+# # 初始化数据库表结构（如果需要）
+# if ! mysql -u root -e "USE media_crawler; SHOW TABLES;" 2>/dev/null | grep -q "xhs_note"; then
+#     echo "🗄️ 初始化数据库表结构..."
+#     python db.py
+# fi
 
 # 启动爬虫
 python main.py --platform xhs --lt qrcode --type search
