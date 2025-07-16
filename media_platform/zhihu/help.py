@@ -19,6 +19,7 @@ from parsel import Selector
 
 from constant import zhihu as zhihu_constant
 from model.m_zhihu import ZhihuComment, ZhihuContent, ZhihuCreator
+from tools import utils
 from tools.crawler_util import extract_text_from_html
 
 ZHIHU_SGIN_JS = None
@@ -197,6 +198,14 @@ class ZhihuExtractor:
                 return res
             if not author.get("id"):
                 author = author.get("member")
+            
+            # 再次检查author是否为None
+            if not author:
+                utils.logger.warning(
+                    f"[ZhihuExtractor._extract_content_or_comment_author] Author is None after member extraction"
+                )
+                return res
+                
             res.user_id = author.get("id")
             res.user_link = f"{zhihu_constant.ZHIHU_URL}/people/{author.get('url_token')}"
             res.user_nickname = author.get("name")

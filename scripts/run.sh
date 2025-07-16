@@ -105,9 +105,3 @@ echo "📁 数据保存位置: MySQL 数据库 (media_crawler)"
 echo "🔗 使用 DataGrip 查看: jdbc:mysql://localhost:3306/media_crawler"
 echo "⏰ 结束时间: $(date)"
 
-# 询问是否保持浏览器运行
-echo
-read -p "🌐 是否关闭浏览器？(y/N): " close_browser
-if [[ $close_browser =~ ^[Yy]$ ]]; then
-    ./scripts/stop_browser.sh
-fi
