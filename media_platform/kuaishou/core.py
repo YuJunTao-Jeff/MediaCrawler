@@ -38,6 +38,7 @@ class KuaishouCrawler(AbstractCrawler):
     cdp_manager: Optional[CDPBrowserManager]
 
     def __init__(self):
+        super().__init__()
         self.index_url = "https://www.kuaishou.com"
         self.user_agent = utils.get_user_agent()
         self.cdp_manager = None
@@ -392,3 +393,21 @@ class KuaishouCrawler(AbstractCrawler):
         else:
             await self.browser_context.close()
         utils.logger.info("[KuaishouCrawler.close] Browser context closed ...")
+
+    # 实现抽象方法
+    def extract_item_id(self, content: dict) -> str:
+        """从内容中提取唯一ID"""
+        return content.get("photo_id", "")
+
+    def extract_item_timestamp(self, content: dict) -> int:
+        """从内容中提取时间戳"""
+        return content.get("timestamp", 0)
+
+    async def get_page_content(self, page_num: int) -> List[dict]:
+        """获取指定页面的内容"""
+        # 这里需要根据实际需求实现
+        return []
+
+    async def store_content(self, content: dict) -> None:
+        """存储内容到数据库"""
+        await kuaishou_store.update_kuaishou_video(content)
