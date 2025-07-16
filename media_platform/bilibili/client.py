@@ -48,7 +48,15 @@ class BilibiliClient(AbstractApiClient):
         self.cookie_dict = cookie_dict
 
     async def request(self, method, url, **kwargs) -> Any:
-        async with httpx.AsyncClient(proxies=self.proxies) as client:
+        # 处理代理参数
+        proxy = None
+        if self.proxies:
+            if isinstance(self.proxies, dict):
+                proxy = list(self.proxies.values())[0] if self.proxies else None
+            else:
+                proxy = self.proxies
+        
+        async with httpx.AsyncClient(proxy=proxy) as client:
             response = await client.request(
                 method, url, timeout=self.timeout,
                 **kwargs
