@@ -36,6 +36,8 @@ async def parse_cmd():
                         help='where to save the data (csv or db or json)', choices=['csv', 'db', 'json'], default=config.SAVE_DATA_OPTION)
     parser.add_argument('--cookies', type=str,
                         help='cookies used for cookie login type', default=config.COOKIES)
+    parser.add_argument('--cdp_mode', type=str2bool,
+                        help='whether to enable CDP mode, supported values case insensitive (\'yes\', \'true\', \'t\', \'y\', \'1\', \'no\', \'false\', \'f\', \'n\', \'0\')', default=config.ENABLE_CDP_MODE)
 
     args = parser.parse_args()
 
@@ -49,3 +51,4 @@ async def parse_cmd():
     config.ENABLE_GET_SUB_COMMENTS = args.get_sub_comment
     config.SAVE_DATA_OPTION = args.save_data_option
     config.COOKIES = args.cookies
+    config.ENABLE_CDP_MODE = args.cdp_mode

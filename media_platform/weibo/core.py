@@ -148,23 +148,47 @@ class WeiboCrawler(AbstractCrawler):
                     page += 1
                     continue
                 utils.logger.info(f"[WeiboCrawler.search] search weibo keyword: {keyword}, page: {page}")
-                search_res = await self.wb_client.get_note_by_keyword(
-                    keyword=keyword,
-                    page=page,
-                    search_type=search_type
-                )
-                note_id_list: List[str] = []
-                note_list = filter_search_result_card(search_res.get("cards"))
-                for note_item in note_list:
-                    if note_item:
-                        mblog: Dict = note_item.get("mblog")
-                        if mblog:
-                            note_id_list.append(mblog.get("id"))
-                            await weibo_store.update_weibo_note(note_item)
-                            await self.get_note_images(mblog)
+                
+                try:
+                    search_res = await self.wb_client.get_note_by_keyword(
+                        keyword=keyword,
+                        page=page,
+                        search_type=search_type
+                    )
+                    note_id_list: List[str] = []
+                    note_list = filter_search_result_card(search_res.get("cards"))
+                    for note_item in note_list:
+                        if note_item:
+                            mblog: Dict = note_item.get("mblog")
+                            if mblog:
+                                note_id_list.append(mblog.get("id"))
+                                await weibo_store.update_weibo_note(note_item)
+                                await self.get_note_images(mblog)
 
-                page += 1
-                await self.batch_get_notes_comments(note_id_list)
+                    page += 1
+                    await self.batch_get_notes_comments(note_id_list)
+                    
+                except DataFetchError as ex:
+                    error_msg = str(ex)
+                    utils.logger.warning(f"[WeiboCrawler.search] search keyword: {keyword}, page: {page} error: {error_msg}")
+                    
+                    # 根据错误类型进行分类处理
+                    if "这里还没有内容" in error_msg:
+                        utils.logger.info(f"[WeiboCrawler.search] keyword: {keyword} 搜索结果为空，跳过剩余页面")
+                        break  # 跳出当前关键词的分页循环
+                    elif "博主已开启防火墙" in error_msg:
+                        utils.logger.info(f"[WeiboCrawler.search] keyword: {keyword}, page: {page} 遇到防火墙限制，跳过当前页面")
+                        page += 1
+                        continue  # 继续下一页
+                    else:
+                        utils.logger.error(f"[WeiboCrawler.search] keyword: {keyword}, page: {page} 未知错误: {error_msg}")
+                        page += 1
+                        continue  # 继续下一页
+                        
+                except Exception as ex:
+                    utils.logger.error(f"[WeiboCrawler.search] keyword: {keyword}, page: {page} 发生未预期错误: {ex}")
+                    page += 1
+                    continue  # 继续下一页
 
     async def get_specified_notes(self):
         """

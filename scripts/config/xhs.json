@@ -1,0 +1,5 @@
+{
+  "cdp_mode": true,
+  "default_args": "--lt qrcode --type search --get_comment true --save_data_option db",
+  "description": "小红书配置 - 使用CDP模式获得更好的反检测能力"
+}

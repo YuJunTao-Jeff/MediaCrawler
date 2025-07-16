@@ -1,0 +1,5 @@
+{
+  "cdp_mode": false,
+  "default_args": "--lt qrcode --type search --get_comment true --save_data_option db",
+  "description": "微博配置 - 使用标准模式"
+}
