@@ -46,9 +46,9 @@ class CrawlProgressManager:
         current_time = int(time.time() * 1000)
         
         # 检查是否已存在任务
-        existing_task = await self.db.execute(
+        existing_task = await self.db.query(
             "SELECT * FROM crawl_task WHERE task_id = %s",
-            (self.task_id,)
+            self.task_id
         )
         
         if existing_task:
@@ -56,7 +56,7 @@ class CrawlProgressManager:
             # 更新任务状态为运行中
             await self.db.execute(
                 "UPDATE crawl_task SET status = 'running', last_update_time = %s WHERE task_id = %s",
-                (current_time, self.task_id)
+                current_time, self.task_id
             )
         else:
             # 创建新任务
@@ -68,16 +68,16 @@ class CrawlProgressManager:
                 'START_PAGE': config.START_PAGE,
                 'ENABLE_GET_COMMENTS': config.ENABLE_GET_COMMENTS,
                 'SAVE_DATA_OPTION': config.SAVE_DATA_OPTION
-            })
+            }, ensure_ascii=False)
             
             await self.db.execute(
                 """INSERT INTO crawl_task 
                    (task_id, platform, crawler_type, keywords, total_keywords, 
-                    status, start_time, last_update_time, config_snapshot)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (self.task_id, self.platform, config.CRAWLER_TYPE, 
-                 config.KEYWORDS, len(keywords), 'running', 
-                 current_time, current_time, config_snapshot)
+                    completed_keywords, status, start_time, last_update_time, config_snapshot)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                self.task_id, self.platform, config.CRAWLER_TYPE, 
+                config.KEYWORDS, len(keywords), 0, 'running', 
+                current_time, current_time, config_snapshot
             )
             
             self.current_task = {
@@ -90,9 +90,9 @@ class CrawlProgressManager:
     
     async def _load_keyword_progress(self) -> None:
         """加载关键词进度"""
-        progress_records = await self.db.execute(
+        progress_records = await self.db.query(
             "SELECT * FROM keyword_progress WHERE task_id = %s",
-            (self.task_id,)
+            self.task_id
         )
         
         for record in progress_records:
@@ -180,8 +180,8 @@ class CrawlProgressManager:
                last_item_time = VALUES(last_item_time),
                last_item_id = VALUES(last_item_id),
                last_update_time = VALUES(last_update_time)""",
-            (self.task_id, keyword, self.platform, page, progress['items_count'],
-             last_item_time, last_item_id, 'running', current_time, current_time)
+            self.task_id, keyword, self.platform, page, progress['items_count'],
+            last_item_time, last_item_id, 'running', current_time, current_time
         )
     
     async def mark_keyword_completed(self, keyword: str) -> None:
@@ -197,7 +197,7 @@ class CrawlProgressManager:
             """UPDATE keyword_progress 
                SET status = 'completed', completion_time = %s, last_update_time = %s
                WHERE task_id = %s AND keyword = %s""",
-            (current_time, current_time, self.task_id, keyword)
+            current_time, current_time, self.task_id, keyword
         )
         
         # 更新任务完成进度
@@ -206,7 +206,7 @@ class CrawlProgressManager:
             """UPDATE crawl_task 
                SET completed_keywords = %s, last_update_time = %s
                WHERE task_id = %s""",
-            (completed_count, current_time, self.task_id)
+            completed_count, current_time, self.task_id
         )
         
         utils.logger.info(f"[CrawlProgressManager] Keyword '{keyword}' completed")
@@ -253,10 +253,10 @@ class CrawlProgressManager:
     
     async def get_checkpoint(self, keyword: str, page: int) -> Optional[Dict[str, Any]]:
         """获取检查点"""
-        result = await self.db.execute(
+        result = await self.db.query(
             """SELECT checkpoint_data FROM crawl_checkpoints 
                WHERE task_id = %s AND keyword = %s AND page_number = %s""",
-            (self.task_id, keyword, page)
+            self.task_id, keyword, page
         )
         
         if result:
@@ -280,28 +280,28 @@ class CrawlProgressManager:
                duplicate_items = VALUES(duplicate_items),
                failed_items = VALUES(failed_items),
                update_time = VALUES(update_time)""",
-            (self.task_id, self.platform, stat_date, total_items, new_items,
-             duplicate_items, failed_items, current_time, current_time)
+            self.task_id, self.platform, stat_date, total_items, new_items,
+            duplicate_items, failed_items, current_time, current_time
         )
     
     async def get_task_summary(self) -> Dict[str, Any]:
         """获取任务摘要"""
         # 获取任务信息
-        task_info = await self.db.execute(
+        task_info = await self.db.query(
             "SELECT * FROM crawl_task WHERE task_id = %s",
-            (self.task_id,)
+            self.task_id
         )
         
         # 获取关键词进度
-        keyword_progress = await self.db.execute(
+        keyword_progress = await self.db.query(
             "SELECT * FROM keyword_progress WHERE task_id = %s",
-            (self.task_id,)
+            self.task_id
         )
         
         # 获取统计信息
-        stats = await self.db.execute(
+        stats = await self.db.query(
             "SELECT * FROM crawl_statistics WHERE task_id = %s ORDER BY stat_date DESC LIMIT 1",
-            (self.task_id,)
+            self.task_id
         )
         
         return {
@@ -328,19 +328,19 @@ class CrawlProgressManager:
             # 重置整个任务
             await self.db.execute(
                 "DELETE FROM keyword_progress WHERE task_id = %s",
-                (self.task_id,)
+                self.task_id
             )
             await self.db.execute(
                 "DELETE FROM crawl_checkpoints WHERE task_id = %s",
-                (self.task_id,)
+                self.task_id
             )
             await self.db.execute(
                 "DELETE FROM crawl_statistics WHERE task_id = %s",
-                (self.task_id,)
+                self.task_id
             )
             await self.db.execute(
                 "DELETE FROM crawl_task WHERE task_id = %s",
-                (self.task_id,)
+                self.task_id
             )
             self.keyword_progress.clear()
     

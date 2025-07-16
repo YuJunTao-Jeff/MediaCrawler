@@ -13,6 +13,7 @@
 import asyncio
 import os
 import random
+import time
 from asyncio import Task
 from typing import Dict, List, Optional, Tuple, cast
 
@@ -42,6 +43,7 @@ class ZhihuCrawler(AbstractCrawler):
     cdp_manager: Optional[CDPBrowserManager]
 
     def __init__(self) -> None:
+        super().__init__()
         self.index_url = "https://www.zhihu.com"
         # self.user_agent = utils.get_user_agent()
         self.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -54,69 +56,77 @@ class ZhihuCrawler(AbstractCrawler):
         Returns:
 
         """
+        # 初始化断点续爬功能
+        await self.init_resume_crawl("zhihu", config.RESUME_TASK_ID)
+        
         playwright_proxy_format, httpx_proxy_format = None, None
         if config.ENABLE_IP_PROXY:
             ip_proxy_pool = await create_ip_pool(config.IP_PROXY_POOL_COUNT, enable_validate_ip=True)
             ip_proxy_info: IpInfoModel = await ip_proxy_pool.get_proxy()
             playwright_proxy_format, httpx_proxy_format = self.format_proxy_info(ip_proxy_info)
 
-        async with async_playwright() as playwright:
-            # 根据配置选择启动模式
-            if config.ENABLE_CDP_MODE:
-                utils.logger.info("[ZhihuCrawler] 使用CDP模式启动浏览器")
-                self.browser_context = await self.launch_browser_with_cdp(
-                    playwright, playwright_proxy_format, self.user_agent,
-                    headless=config.CDP_HEADLESS
-                )
-            else:
-                utils.logger.info("[ZhihuCrawler] 使用标准模式启动浏览器")
-                # Launch a browser context.
-                chromium = playwright.chromium
-                self.browser_context = await self.launch_browser(
-                    chromium,
-                    None,
-                    self.user_agent,
-                    headless=config.HEADLESS
-                )
-            # stealth.min.js is a js script to prevent the website from detecting the crawler.
-            await self.browser_context.add_init_script(path="libs/stealth.min.js")
+        try:
+            async with async_playwright() as playwright:
+                # 根据配置选择启动模式
+                if config.ENABLE_CDP_MODE:
+                    utils.logger.info("[ZhihuCrawler] 使用CDP模式启动浏览器")
+                    self.browser_context = await self.launch_browser_with_cdp(
+                        playwright, playwright_proxy_format, self.user_agent,
+                        headless=config.CDP_HEADLESS
+                    )
+                else:
+                    utils.logger.info("[ZhihuCrawler] 使用标准模式启动浏览器")
+                    # Launch a browser context.
+                    chromium = playwright.chromium
+                    self.browser_context = await self.launch_browser(
+                        chromium,
+                        None,
+                        self.user_agent,
+                        headless=config.HEADLESS
+                    )
+                # stealth.min.js is a js script to prevent the website from detecting the crawler.
+                await self.browser_context.add_init_script(path="libs/stealth.min.js")
 
-            self.context_page = await self.browser_context.new_page()
-            await self.context_page.goto(self.index_url, wait_until="domcontentloaded")
+                self.context_page = await self.browser_context.new_page()
+                await self.context_page.goto(self.index_url, wait_until="domcontentloaded")
 
-            # Create a client to interact with the zhihu website.
-            self.zhihu_client = await self.create_zhihu_client(httpx_proxy_format)
-            if not await self.zhihu_client.pong():
-                login_obj = ZhiHuLogin(
-                    login_type=config.LOGIN_TYPE,
-                    login_phone="",  # input your phone number
-                    browser_context=self.browser_context,
-                    context_page=self.context_page,
-                    cookie_str=config.COOKIES
-                )
-                await login_obj.begin()
+                # Create a client to interact with the zhihu website.
+                self.zhihu_client = await self.create_zhihu_client(httpx_proxy_format)
+                if not await self.zhihu_client.pong():
+                    login_obj = ZhiHuLogin(
+                        login_type=config.LOGIN_TYPE,
+                        login_phone="",  # input your phone number
+                        browser_context=self.browser_context,
+                        context_page=self.context_page,
+                        cookie_str=config.COOKIES
+                    )
+                    await login_obj.begin()
+                    await self.zhihu_client.update_cookies(browser_context=self.browser_context)
+
+                # 知乎的搜索接口需要打开搜索页面之后cookies才能访问API，单独的首页不行
+                utils.logger.info("[ZhihuCrawler.start] Zhihu跳转到搜索页面获取搜索页面的Cookies，该过程需要5秒左右")
+                await self.context_page.goto(f"{self.index_url}/search?q=python&search_source=Guess&utm_content=search_hot&type=content")
+                await asyncio.sleep(5)
                 await self.zhihu_client.update_cookies(browser_context=self.browser_context)
 
-            # 知乎的搜索接口需要打开搜索页面之后cookies才能访问API，单独的首页不行
-            utils.logger.info("[ZhihuCrawler.start] Zhihu跳转到搜索页面获取搜索页面的Cookies，该过程需要5秒左右")
-            await self.context_page.goto(f"{self.index_url}/search?q=python&search_source=Guess&utm_content=search_hot&type=content")
-            await asyncio.sleep(5)
-            await self.zhihu_client.update_cookies(browser_context=self.browser_context)
+                crawler_type_var.set(config.CRAWLER_TYPE)
+                if config.CRAWLER_TYPE == "search":
+                    # Search for notes and retrieve their comment information.
+                    await self.search()
+                elif config.CRAWLER_TYPE == "detail":
+                    # Get the information and comments of the specified post
+                    await self.get_specified_notes()
+                elif config.CRAWLER_TYPE == "creator":
+                    # Get creator's information and their notes and comments
+                    await self.get_creators_and_notes()
+                else:
+                    pass
 
-            crawler_type_var.set(config.CRAWLER_TYPE)
-            if config.CRAWLER_TYPE == "search":
-                # Search for notes and retrieve their comment information.
-                await self.search()
-            elif config.CRAWLER_TYPE == "detail":
-                # Get the information and comments of the specified post
-                await self.get_specified_notes()
-            elif config.CRAWLER_TYPE == "creator":
-                # Get creator's information and their notes and comments
-                await self.get_creators_and_notes()
-            else:
-                pass
-
-            utils.logger.info("[ZhihuCrawler.start] Zhihu Crawler finished ...")
+                utils.logger.info("[ZhihuCrawler.start] Zhihu Crawler finished ...")
+                
+        finally:
+            # 清理断点续爬资源
+            await self.cleanup_crawl_progress()
 
     async def search(self) -> None:
         """Search for notes and retrieve their comment information."""
@@ -124,16 +134,35 @@ class ZhihuCrawler(AbstractCrawler):
         zhihu_limit_count = 20  # zhihu limit page fixed value
         if config.CRAWLER_MAX_NOTES_COUNT < zhihu_limit_count:
             config.CRAWLER_MAX_NOTES_COUNT = zhihu_limit_count
-        start_page = config.START_PAGE
+        
         for keyword in config.KEYWORDS.split(","):
+            keyword = keyword.strip()
+            if not keyword:
+                continue
+                
             source_keyword_var.set(keyword)
             utils.logger.info(f"[ZhihuCrawler.search] Current search keyword: {keyword}")
-            page = 1
+            
+            # 获取断点续爬起始页
+            start_page = await self.get_resume_start_page(keyword)
+            
+            # 如果起始页是999999，表示该关键词已完成
+            if start_page >= 999999:
+                utils.logger.info(f"[ZhihuCrawler.search] Keyword {keyword} already completed, skip")
+                continue
+            
+            page = max(start_page, 1)
+            total_items = 0
+            new_items = 0
+            duplicate_items = 0
+            failed_items = 0
+            empty_page_count = 0
+            
             while (page - start_page + 1) * zhihu_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
-                if page < start_page:
-                    utils.logger.info(f"[ZhihuCrawler.search] Skip page {page}")
-                    page += 1
-                    continue
+                # 检查是否应该停止
+                if await self.should_stop_keyword_crawl(keyword, page):
+                    utils.logger.info(f"[ZhihuCrawler.search] Stop crawling keyword {keyword} at page {page}")
+                    break
 
                 try:
                     utils.logger.info(f"[ZhihuCrawler.search] search zhihu keyword: {keyword}, page: {page}")
@@ -141,19 +170,83 @@ class ZhihuCrawler(AbstractCrawler):
                         keyword=keyword,
                         page=page,
                     )
-                    utils.logger.info(f"[ZhihuCrawler.search] Search contents :{content_list}")
+                    utils.logger.info(f"[ZhihuCrawler.search] Search contents count: {len(content_list) if content_list else 0}")
+                    
                     if not content_list:
-                        utils.logger.info("No more content!")
-                        break
+                        empty_page_count += 1
+                        if not await self.handle_empty_page(keyword, page):
+                            utils.logger.info(f"[ZhihuCrawler.search] Too many empty pages for keyword {keyword}, stopping")
+                            break
+                        page += 1
+                        continue
+                    else:
+                        empty_page_count = 0
 
-                    page += 1
+                    # 批量处理数据
+                    processed_items = await self.process_crawl_batch(keyword, page, 
+                                                                   [content.model_dump() for content in content_list])
+                    
+                    # 去重和存储
+                    page_new_items = 0
+                    page_duplicate_items = 0
+                    page_failed_items = 0
+                    
                     for content in content_list:
-                        await zhihu_store.update_zhihu_content(content)
+                        total_items += 1
+                        
+                        # 检查是否应该跳过（去重）
+                        if await self.should_skip_content(content.model_dump(), keyword):
+                            duplicate_items += 1
+                            page_duplicate_items += 1
+                            continue
+                        
+                        # 存储数据
+                        try:
+                            await zhihu_store.update_zhihu_content(content)
+                            new_items += 1
+                            page_new_items += 1
+                        except Exception as e:
+                            failed_items += 1
+                            page_failed_items += 1
+                            utils.logger.error(f"[ZhihuCrawler.search] Store content failed: {e}")
 
+                    # 更新进度
+                    last_item = content_list[-1].model_dump() if content_list else None
+                    await self.update_crawl_progress(keyword, page, len(content_list), last_item)
+                    
+                    # 保存检查点
+                    checkpoint_data = {
+                        'content_list': [content.model_dump() for content in content_list],
+                        'page_stats': {
+                            'new': page_new_items,
+                            'duplicate': page_duplicate_items,
+                            'failed': page_failed_items
+                        }
+                    }
+                    await self.save_crawl_checkpoint(keyword, page, checkpoint_data)
+
+                    # 获取评论
                     await self.batch_get_content_comments(content_list)
+                    
+                    page += 1
+                    
                 except DataFetchError:
                     utils.logger.error("[ZhihuCrawler.search] Search content error")
-                    return
+                    failed_items += 1
+                    page += 1
+                    continue
+                except Exception as e:
+                    utils.logger.error(f"[ZhihuCrawler.search] Unexpected error: {e}")
+                    failed_items += 1
+                    page += 1
+                    continue
+            
+            # 标记关键词完成
+            await self.mark_keyword_completed(keyword)
+            
+            # 更新统计信息
+            await self.update_crawl_statistics(total_items, new_items, duplicate_items, failed_items)
+            utils.logger.info(f"[ZhihuCrawler.search] Keyword {keyword} completed: total={total_items}, new={new_items}, duplicate={duplicate_items}, failed={failed_items}")
 
     async def batch_get_content_comments(self, content_list: List[ZhihuContent]):
         """
@@ -437,3 +530,56 @@ class ZhihuCrawler(AbstractCrawler):
         else:
             await self.browser_context.close()
         utils.logger.info("[ZhihuCrawler.close] Browser context closed ...")
+
+    # ==================== 断点续爬必须实现的抽象方法 ====================
+    
+    def extract_item_id(self, content_item: Dict) -> Optional[str]:
+        """从内容项中提取唯一ID"""
+        # 知乎内容的唯一ID
+        return content_item.get('content_id') or content_item.get('id')
+    
+    def extract_item_timestamp(self, content_item: Dict) -> Optional[int]:
+        """从内容项中提取时间戳"""
+        # 知乎内容的时间戳字段
+        timestamp = content_item.get('created_time') or content_item.get('updated_time')
+        if timestamp:
+            # 确保返回毫秒级时间戳
+            if isinstance(timestamp, int):
+                # 如果是秒级时间戳，转换为毫秒
+                if timestamp < 10000000000:  # 小于10位数，可能是秒级
+                    return timestamp * 1000
+                return timestamp
+        return None
+    
+    # ==================== 可选实现的断点续爬优化方法 ====================
+    
+    async def smart_search_optimization(self, keyword: str, page: int) -> tuple:
+        """智能搜索优化"""
+        if not config.ENABLE_SMART_SEARCH:
+            return False, {}
+        
+        # 知乎搜索优化示例：如果已经爬取了很多页，可以调整搜索策略
+        if page > 30:  # 如果已经爬取了很多页
+            # 可以考虑调整搜索排序等参数
+            return True, {'sort_type': 'time'}
+        
+        return False, {}
+    
+    async def process_crawl_batch(self, keyword: str, page: int, items: List[Dict]) -> List[Dict]:
+        """批量处理爬取数据"""
+        # 为知乎数据添加爬取元数据
+        processed_items = []
+        
+        for item in items:
+            # 添加爬取元数据
+            item['crawl_keyword'] = keyword
+            item['crawl_page'] = page
+            item['crawl_time'] = int(time.time() * 1000)
+            
+            # 确保source_keyword字段存在
+            if 'source_keyword' not in item:
+                item['source_keyword'] = keyword
+            
+            processed_items.append(item)
+        
+        return processed_items
