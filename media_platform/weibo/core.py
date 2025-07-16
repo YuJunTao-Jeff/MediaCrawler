@@ -46,6 +46,7 @@ class WeiboCrawler(AbstractCrawler):
     cdp_manager: Optional[CDPBrowserManager]
 
     def __init__(self):
+        super().__init__()
         self.index_url = "https://www.weibo.com"
         self.mobile_index_url = "https://m.weibo.cn"
         self.user_agent = utils.get_user_agent()
@@ -441,3 +442,141 @@ class WeiboCrawler(AbstractCrawler):
         else:
             await self.browser_context.close()
         utils.logger.info("[WeiboCrawler.close] Browser context closed ...")
+
+    # ==================== 实现新的简化接口 ====================
+    
+    async def get_page_content(self, keyword: str, page: int) -> List[Dict]:
+        """获取指定关键词和页码的内容列表"""
+        try:
+            # 微博搜索API调用
+            wb_result = await self.wb_client.get_note_by_keyword(keyword=keyword, page=page)
+            if not wb_result or not wb_result.get("cards"):
+                return []
+            
+            # 转换为标准格式
+            content_list = []
+            for card in wb_result["cards"]:
+                if card.get("card_type") == 9:  # 微博内容类型
+                    mblog = card.get("mblog", {})
+                    content_dict = {
+                        "note_id": mblog.get("id", ""),
+                        "title": mblog.get("text", "")[:50],  # 取前50字符作为标题
+                        "desc": mblog.get("text", ""),
+                        "user_id": mblog.get("user", {}).get("id", ""),
+                        "user_name": mblog.get("user", {}).get("screen_name", ""),
+                        "liked_count": mblog.get("attitudes_count", 0),
+                        "comment_count": mblog.get("comments_count", 0),
+                        "repost_count": mblog.get("reposts_count", 0),
+                        "created_time": mblog.get("created_at", ""),
+                        "keyword": keyword,
+                        "page": page,
+                        "source": mblog.get("source", ""),
+                        "region_name": mblog.get("region_name", ""),
+                        "pic_ids": mblog.get("pic_ids", []),
+                        "pic_infos": mblog.get("pic_infos", {}),
+                        "isLongText": mblog.get("isLongText", False),
+                        "raw_data": mblog  # 保留原始数据
+                    }
+                    content_list.append(content_dict)
+            
+            return content_list
+            
+        except Exception as e:
+            utils.logger.error(f"[WeiboCrawler.get_page_content] Error: {e}")
+            raise
+
+    async def store_content(self, content_item: Dict) -> None:
+        """存储单个内容项"""
+        try:
+            # 转换为微博Note对象
+            from model.m_weibo import WeiboContent
+            
+            # 构造WeiboContent对象
+            weibo_data = {
+                "note_id": content_item.get("note_id", ""),
+                "content": content_item.get("desc", ""),
+                "create_time": content_item.get("created_time", ""),
+                "create_date_time": 0,  # 需要转换时间
+                "liked_count": content_item.get("liked_count", 0),
+                "comments_count": content_item.get("comment_count", 0),
+                "shared_count": content_item.get("repost_count", 0),
+                "source": content_item.get("source", ""),
+                "user_id": content_item.get("user_id", ""),
+                "nickname": content_item.get("user_name", ""),
+                "gender": "",
+                "profile_url": "",
+                "avatar": "",
+                "location": content_item.get("region_name", ""),
+                "profile": "",
+                "verified": "",
+                "verified_type": 0,
+                "followers_count": 0,
+                "follows_count": 0,
+                "notes_count": 0,
+                "ip_location": content_item.get("region_name", ""),
+                "keyword": content_item.get("keyword", ""),
+                "image_list": content_item.get("pic_ids", []),
+                "video_url": "",
+                "is_long_text": content_item.get("isLongText", False)
+            }
+            
+            # 时间转换
+            if weibo_data["create_time"]:
+                import time
+                from datetime import datetime
+                try:
+                    # 微博时间格式转换
+                    create_time_str = weibo_data["create_time"]
+                    if "刚刚" in create_time_str:
+                        weibo_data["create_date_time"] = int(time.time() * 1000)
+                    elif "分钟前" in create_time_str:
+                        minutes = int(create_time_str.replace("分钟前", ""))
+                        weibo_data["create_date_time"] = int((time.time() - minutes * 60) * 1000)
+                    elif "小时前" in create_time_str:
+                        hours = int(create_time_str.replace("小时前", ""))
+                        weibo_data["create_date_time"] = int((time.time() - hours * 3600) * 1000)
+                    else:
+                        # 其他格式尝试解析
+                        weibo_data["create_date_time"] = int(time.time() * 1000)
+                except:
+                    weibo_data["create_date_time"] = int(time.time() * 1000)
+            
+            weibo_note = WeiboContent(**weibo_data)
+            await weibo_store.update_weibo_note(weibo_note)
+            
+        except Exception as e:
+            utils.logger.error(f"[WeiboCrawler.store_content] Error: {e}")
+            raise
+
+    def extract_item_id(self, content_item: Dict) -> str:
+        """从内容项中提取唯一ID"""
+        return content_item.get("note_id", "")
+
+    def extract_item_timestamp(self, content_item: Dict) -> int:
+        """从内容项中提取时间戳"""
+        # 微博时间处理比较复杂，需要解析相对时间
+        create_time = content_item.get("created_time", "")
+        if create_time:
+            import time
+            try:
+                if "刚刚" in create_time:
+                    return int(time.time() * 1000)
+                elif "分钟前" in create_time:
+                    minutes = int(create_time.replace("分钟前", ""))
+                    return int((time.time() - minutes * 60) * 1000)
+                elif "小时前" in create_time:
+                    hours = int(create_time.replace("小时前", ""))
+                    return int((time.time() - hours * 3600) * 1000)
+                else:
+                    return int(time.time() * 1000)
+            except:
+                return int(time.time() * 1000)
+        return int(time.time() * 1000)
+
+    def get_platform_config(self) -> Dict:
+        """获取微博平台特定配置"""
+        return {
+            'page_limit': 20,  # 微博每页约20条
+            'enable_comments': config.ENABLE_GET_COMMENTS,
+            'max_empty_pages': 3
+        }

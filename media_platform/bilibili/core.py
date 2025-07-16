@@ -45,6 +45,7 @@ class BilibiliCrawler(AbstractCrawler):
     cdp_manager: Optional[CDPBrowserManager]
 
     def __init__(self):
+        super().__init__()
         self.index_url = "https://www.bilibili.com"
         self.user_agent = utils.get_user_agent()
         self.cdp_manager = None
@@ -479,6 +480,104 @@ class BilibiliCrawler(AbstractCrawler):
         else:
             await self.browser_context.close()
         utils.logger.info("[BilibiliCrawler.close] Browser context closed ...")
+
+    # ==================== 实现新的简化接口 ====================
+    
+    async def get_page_content(self, keyword: str, page: int) -> List[Dict]:
+        """获取指定关键词和页码的内容列表"""
+        try:
+            # B站搜索API调用
+            videos_res = await self.bili_client.get_video_by_keyword(keyword=keyword, page=page)
+            if not videos_res or not videos_res.get("data", {}).get("result"):
+                return []
+            
+            # 转换为标准格式
+            content_list = []
+            for video in videos_res["data"]["result"]:
+                content_dict = {
+                    "video_id": video.get("bvid", ""),
+                    "title": video.get("title", ""),
+                    "desc": video.get("description", ""),
+                    "duration": video.get("duration", ""),
+                    "play_count": video.get("play", 0),
+                    "like_count": video.get("like", 0),
+                    "comment_count": video.get("review", 0),
+                    "created_time": video.get("pubdate", 0) * 1000 if video.get("pubdate") else 0,
+                    "author": video.get("author", ""),
+                    "mid": video.get("mid", ""),
+                    "keyword": keyword,
+                    "page": page,
+                    "pic": video.get("pic", ""),
+                    "tag": video.get("tag", ""),
+                    "video_review": video.get("video_review", 0),
+                    "favorites": video.get("favorites", 0),
+                    "raw_data": video
+                }
+                content_list.append(content_dict)
+            
+            return content_list
+            
+        except Exception as e:
+            utils.logger.error(f"[BilibiliCrawler.get_page_content] Error: {e}")
+            raise
+
+    async def store_content(self, content_item: Dict) -> None:
+        """存储单个内容项"""
+        try:
+            # 转换为B站Video对象
+            from model.m_bilibili import BilibiliVideo
+            
+            # 构造BilibiliVideo对象
+            bili_data = {
+                "video_id": content_item.get("video_id", ""),
+                "title": content_item.get("title", ""),
+                "desc": content_item.get("desc", ""),
+                "duration": content_item.get("duration", ""),
+                "play_count": content_item.get("play_count", 0),
+                "like_count": content_item.get("like_count", 0),
+                "comment_count": content_item.get("comment_count", 0),
+                "created_time": content_item.get("created_time", 0),
+                "author": content_item.get("author", ""),
+                "mid": content_item.get("mid", ""),
+                "keyword": content_item.get("keyword", ""),
+                "pic": content_item.get("pic", ""),
+                "tag": content_item.get("tag", ""),
+                "video_review": content_item.get("video_review", 0),
+                "favorites": content_item.get("favorites", 0),
+                "ip_location": "",
+                "video_url": "",
+                "video_type": "search"
+            }
+            
+            bili_video = BilibiliVideo(**bili_data)
+            await bilibili_store.update_bilibili_video(bili_video)
+            
+        except Exception as e:
+            utils.logger.error(f"[BilibiliCrawler.store_content] Error: {e}")
+            raise
+
+    def extract_item_id(self, content_item: Dict) -> str:
+        """从内容项中提取唯一ID"""
+        return content_item.get("video_id", "")
+
+    def extract_item_timestamp(self, content_item: Dict) -> int:
+        """从内容项中提取时间戳"""
+        timestamp = content_item.get("created_time", 0)
+        if timestamp:
+            # 确保返回毫秒级时间戳
+            if isinstance(timestamp, int):
+                if timestamp < 10000000000:
+                    return timestamp * 1000
+                return timestamp
+        return 0
+
+    def get_platform_config(self) -> Dict:
+        """获取B站平台特定配置"""
+        return {
+            'page_limit': 20,  # B站每页20条
+            'enable_comments': config.ENABLE_GET_COMMENTS,
+            'max_empty_pages': 3
+        }
 
     async def get_bilibili_video(self, video_item: Dict, semaphore: asyncio.Semaphore):
         """

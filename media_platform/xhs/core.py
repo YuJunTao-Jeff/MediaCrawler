@@ -43,12 +43,16 @@ class XiaoHongShuCrawler(AbstractCrawler):
     cdp_manager: Optional[CDPBrowserManager]
 
     def __init__(self) -> None:
+        super().__init__()
         self.index_url = "https://www.xiaohongshu.com"
         # self.user_agent = utils.get_user_agent()
         self.user_agent = config.UA if config.UA else "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         self.cdp_manager = None
 
     async def start(self) -> None:
+        # 初始化断点续爬功能
+        await self.init_resume_crawl("xiaohongshu", config.RESUME_TASK_ID)
+        
         playwright_proxy_format, httpx_proxy_format = None, None
         if config.ENABLE_IP_PROXY:
             ip_proxy_pool = await create_ip_pool(
@@ -59,66 +63,71 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 ip_proxy_info
             )
 
-        async with async_playwright() as playwright:
-            # 根据配置选择启动模式
-            if config.ENABLE_CDP_MODE:
-                utils.logger.info("[XiaoHongShuCrawler] 使用CDP模式启动浏览器")
-                self.browser_context = await self.launch_browser_with_cdp(
-                    playwright, playwright_proxy_format, self.user_agent,
-                    headless=config.CDP_HEADLESS
+        try:
+            async with async_playwright() as playwright:
+                # 根据配置选择启动模式
+                if config.ENABLE_CDP_MODE:
+                    utils.logger.info("[XiaoHongShuCrawler] 使用CDP模式启动浏览器")
+                    self.browser_context = await self.launch_browser_with_cdp(
+                        playwright, playwright_proxy_format, self.user_agent,
+                        headless=config.CDP_HEADLESS
+                    )
+                else:
+                    utils.logger.info("[XiaoHongShuCrawler] 使用标准模式启动浏览器")
+                    # Launch a browser context.
+                    chromium = playwright.chromium
+                    self.browser_context = await self.launch_browser(
+                        chromium, playwright_proxy_format, self.user_agent, headless=config.HEADLESS
+                    )
+                # stealth.min.js is a js script to prevent the website from detecting the crawler.
+                await self.browser_context.add_init_script(path="libs/stealth.min.js")
+                # add a cookie attribute webId to avoid the appearance of a sliding captcha on the webpage
+                await self.browser_context.add_cookies(
+                    [
+                        {
+                            "name": "webId",
+                            "value": "xxx123",  # any value
+                            "domain": ".xiaohongshu.com",
+                            "path": "/",
+                        }
+                    ]
                 )
-            else:
-                utils.logger.info("[XiaoHongShuCrawler] 使用标准模式启动浏览器")
-                # Launch a browser context.
-                chromium = playwright.chromium
-                self.browser_context = await self.launch_browser(
-                    chromium, playwright_proxy_format, self.user_agent, headless=config.HEADLESS
-                )
-            # stealth.min.js is a js script to prevent the website from detecting the crawler.
-            await self.browser_context.add_init_script(path="libs/stealth.min.js")
-            # add a cookie attribute webId to avoid the appearance of a sliding captcha on the webpage
-            await self.browser_context.add_cookies(
-                [
-                    {
-                        "name": "webId",
-                        "value": "xxx123",  # any value
-                        "domain": ".xiaohongshu.com",
-                        "path": "/",
-                    }
-                ]
-            )
-            self.context_page = await self.browser_context.new_page()
-            await self.context_page.goto(self.index_url)
+                self.context_page = await self.browser_context.new_page()
+                await self.context_page.goto(self.index_url)
 
-            # Create a client to interact with the xiaohongshu website.
-            self.xhs_client = await self.create_xhs_client(httpx_proxy_format)
-            if not await self.xhs_client.pong():
-                login_obj = XiaoHongShuLogin(
-                    login_type=config.LOGIN_TYPE,
-                    login_phone="",  # input your phone number
-                    browser_context=self.browser_context,
-                    context_page=self.context_page,
-                    cookie_str=config.COOKIES,
-                )
-                await login_obj.begin()
-                await self.xhs_client.update_cookies(
-                    browser_context=self.browser_context
-                )
+                # Create a client to interact with the xiaohongshu website.
+                self.xhs_client = await self.create_xhs_client(httpx_proxy_format)
+                if not await self.xhs_client.pong():
+                    login_obj = XiaoHongShuLogin(
+                        login_type=config.LOGIN_TYPE,
+                        login_phone="",  # input your phone number
+                        browser_context=self.browser_context,
+                        context_page=self.context_page,
+                        cookie_str=config.COOKIES,
+                    )
+                    await login_obj.begin()
+                    await self.xhs_client.update_cookies(
+                        browser_context=self.browser_context
+                    )
 
-            crawler_type_var.set(config.CRAWLER_TYPE)
-            if config.CRAWLER_TYPE == "search":
-                # Search for notes and retrieve their comment information.
-                await self.search()
-            elif config.CRAWLER_TYPE == "detail":
-                # Get the information and comments of the specified post
-                await self.get_specified_notes()
-            elif config.CRAWLER_TYPE == "creator":
-                # Get creator's information and their notes and comments
-                await self.get_creators_and_notes()
-            else:
-                pass
+                crawler_type_var.set(config.CRAWLER_TYPE)
+                if config.CRAWLER_TYPE == "search":
+                    # Search for notes and retrieve their comment information.
+                    await self.search_with_resume()  # 使用新的通用搜索流程
+                elif config.CRAWLER_TYPE == "detail":
+                    # Get the information and comments of the specified post
+                    await self.get_specified_notes()
+                elif config.CRAWLER_TYPE == "creator":
+                    # Get creator's information and their notes and comments
+                    await self.get_creators_and_notes()
+                else:
+                    pass
 
-            utils.logger.info("[XiaoHongShuCrawler.start] Xhs Crawler finished ...")
+                utils.logger.info("[XiaoHongShuCrawler.start] Xhs Crawler finished ...")
+                
+        finally:
+            # 清理断点续爬资源
+            await self.cleanup_crawl_progress()
 
     async def search(self) -> None:
         """Search for notes and retrieve their comment information."""
@@ -246,6 +255,142 @@ class XiaoHongShuCrawler(AbstractCrawler):
         for note_detail in note_details:
             if note_detail:
                 await xhs_store.update_xhs_note(note_detail)
+
+    # ==================== 实现新的简化接口 ====================
+    
+    async def get_page_content(self, keyword: str, page: int) -> List[Dict]:
+        """获取指定关键词和页码的内容列表"""
+        try:
+            notes_res = await self.xhs_client.get_note_by_keyword(keyword=keyword, page=page)
+            if not notes_res or not notes_res.get("items"):
+                return []
+            
+            # 转换为Dict格式
+            content_list = []
+            for item in notes_res["items"]:
+                if item.get("model_type") == "note":
+                    note_info = item.get("note_card", {})
+                    # 标准化数据格式
+                    content_dict = {
+                        "note_id": note_info.get("note_id", ""),
+                        "title": note_info.get("display_title", ""),
+                        "desc": note_info.get("desc", ""),
+                        "type": note_info.get("type", ""),
+                        "user_id": note_info.get("user", {}).get("user_id", ""),
+                        "user_name": note_info.get("user", {}).get("nickname", ""),
+                        "liked_count": note_info.get("interact_info", {}).get("liked_count", 0),
+                        "collected_count": note_info.get("interact_info", {}).get("collected_count", 0),
+                        "comment_count": note_info.get("interact_info", {}).get("comment_count", 0),
+                        "share_count": note_info.get("interact_info", {}).get("share_count", 0),
+                        "time": note_info.get("time", 0),
+                        "created_time": note_info.get("time", 0) * 1000 if note_info.get("time") else 0,
+                        "keyword": keyword,
+                        "page": page,
+                        "xsec_source": "pc_search",
+                        "xsec_token": note_info.get("xsec_token", ""),
+                        "image_list": note_info.get("image_list", []),
+                        "tag_list": note_info.get("tag_list", [])
+                    }
+                    content_list.append(content_dict)
+            
+            return content_list
+            
+        except Exception as e:
+            utils.logger.error(f"[XiaoHongShuCrawler.get_page_content] Error: {e}")
+            raise
+
+    async def store_content(self, content_item: Dict) -> None:
+        """存储单个内容项"""
+        try:
+            # 转换为小红书Note对象
+            from model.m_xiaohongshu import XhsNote
+            
+            # 构造XhsNote对象需要的数据
+            note_data = {
+                "note_id": content_item.get("note_id", ""),
+                "title": content_item.get("title", ""),
+                "desc": content_item.get("desc", ""),
+                "type": content_item.get("type", ""),
+                "user_id": content_item.get("user_id", ""),
+                "user_name": content_item.get("user_name", ""),
+                "liked_count": content_item.get("liked_count", 0),
+                "collected_count": content_item.get("collected_count", 0),
+                "comment_count": content_item.get("comment_count", 0),
+                "share_count": content_item.get("share_count", 0),
+                "time": content_item.get("time", 0),
+                "keyword": content_item.get("keyword", ""),
+                "xsec_source": content_item.get("xsec_source", ""),
+                "xsec_token": content_item.get("xsec_token", ""),
+                "image_list": content_item.get("image_list", []),
+                "tag_list": content_item.get("tag_list", [])
+            }
+            
+            xhs_note = XhsNote(**note_data)
+            await xhs_store.update_xhs_note(xhs_note)
+            
+        except Exception as e:
+            utils.logger.error(f"[XiaoHongShuCrawler.store_content] Error: {e}")
+            raise
+
+    def extract_item_id(self, content_item: Dict) -> str:
+        """从内容项中提取唯一ID"""
+        return content_item.get("note_id", "")
+
+    def extract_item_timestamp(self, content_item: Dict) -> int:
+        """从内容项中提取时间戳"""
+        timestamp = content_item.get("created_time", 0)
+        if timestamp:
+            # 确保返回毫秒级时间戳
+            if isinstance(timestamp, int):
+                if timestamp < 10000000000:
+                    return timestamp * 1000
+                return timestamp
+        return 0
+
+    def get_platform_config(self) -> Dict:
+        """获取小红书平台特定配置"""
+        return {
+            'page_limit': 20,  # 小红书每页20条
+            'enable_comments': config.ENABLE_GET_COMMENTS,
+            'max_empty_pages': 3
+        }
+
+    async def batch_get_comments(self, content_list: List[Dict]) -> None:
+        """批量获取评论"""
+        if not config.ENABLE_GET_COMMENTS:
+            return
+        
+        # 转换为XhsNote对象
+        xhs_note_list = []
+        for content_dict in content_list:
+            try:
+                from model.m_xiaohongshu import XhsNote
+                note_data = {
+                    "note_id": content_dict.get("note_id", ""),
+                    "title": content_dict.get("title", ""),
+                    "desc": content_dict.get("desc", ""),
+                    "type": content_dict.get("type", ""),
+                    "user_id": content_dict.get("user_id", ""),
+                    "user_name": content_dict.get("user_name", ""),
+                    "liked_count": content_dict.get("liked_count", 0),
+                    "collected_count": content_dict.get("collected_count", 0),
+                    "comment_count": content_dict.get("comment_count", 0),
+                    "share_count": content_dict.get("share_count", 0),
+                    "time": content_dict.get("time", 0),
+                    "keyword": content_dict.get("keyword", ""),
+                    "xsec_source": content_dict.get("xsec_source", ""),
+                    "xsec_token": content_dict.get("xsec_token", ""),
+                    "image_list": content_dict.get("image_list", []),
+                    "tag_list": content_dict.get("tag_list", [])
+                }
+                xhs_note = XhsNote(**note_data)
+                xhs_note_list.append(xhs_note)
+            except Exception as e:
+                utils.logger.error(f"[XiaoHongShuCrawler.batch_get_comments] Convert note failed: {e}")
+                continue
+        
+        # 调用原有的评论获取方法
+        await self.batch_get_note_comments(xhs_note_list)
 
     async def get_specified_notes(self):
         """
