@@ -240,3 +240,31 @@ CRAWLER_MAX_CONTACTS_COUNT_SINGLENOTES = 100
 
 # 爬取作者动态数量控制(单作者)
 CRAWLER_MAX_DYNAMICS_COUNT_SINGLENOTES = 50
+
+# ==================== 断点续爬配置 ====================
+# 是否启用断点续爬功能
+ENABLE_RESUME_CRAWL = True
+
+# 断点续爬任务ID（如果不指定，系统会自动生成）
+RESUME_TASK_ID = None
+
+# 爬取进度保存间隔（处理多少条数据后保存一次进度）
+PROGRESS_SAVE_INTERVAL = 10
+
+# 智能去重时间窗口（秒）- 判断内容是否重复的时间窗口
+SMART_DEDUP_TIME_WINDOW = 86400  # 24小时
+
+# 是否启用智能搜索优化（根据爬取进度调整搜索策略）
+ENABLE_SMART_SEARCH = True
+
+# 连续空页面阈值（连续遇到多少个空页面后停止该关键词）
+EMPTY_PAGE_THRESHOLD = 3
+
+# 重试失败任务的最大次数
+MAX_RETRY_COUNT = 3
+
+# 任务超时时间（秒）
+TASK_TIMEOUT = 3600  # 1小时
+
+# 是否在启动时清理历史任务
+CLEANUP_HISTORY_TASKS = False
