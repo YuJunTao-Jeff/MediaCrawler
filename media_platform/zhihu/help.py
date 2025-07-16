@@ -297,14 +297,29 @@ class ZhihuExtractor:
 
         """
         # https://www.zhihu.com/api/v4/comment_v5/zvideos/1424368906836807681/root_comment?limit=10&offset=456770961_10125996085_0&order_by=score
-        next_url = paging_info.get("next")
-        if not next_url:
-            return ""
+        try:
+            next_url = paging_info.get("next")
+            if not next_url:
+                return ""
 
-        parsed_url = urlparse(next_url)
-        query_params = parse_qs(parsed_url.query)
-        offset = query_params.get('offset', [""])[0]
-        return offset
+            # 验证URL格式
+            if not isinstance(next_url, str) or not next_url.startswith(('http://', 'https://')):
+                return ""
+
+            parsed_url = urlparse(next_url)
+            query_params = parse_qs(parsed_url.query)
+            offset = query_params.get('offset', [""])[0]
+            
+            # 验证offset格式，知乎的offset通常是数字_数字_数字的格式
+            if offset and '_' in offset:
+                return offset
+            else:
+                return ""
+                
+        except Exception as ex:
+            # 记录错误但不中断程序
+            print(f"[ZhihuExtractor.extract_offset] Error extracting offset: {ex}")
+            return ""
 
     @staticmethod
     def _foramt_gender_text(gender: int) -> str:

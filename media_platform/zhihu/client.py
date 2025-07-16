@@ -275,24 +275,65 @@ class ZhiHuClient(AbstractApiClient):
         is_end: bool = False
         offset: str = ""
         limit: int = 10
-        while not is_end:
-            root_comment_res = await self.get_root_comments(content.content_id, content.content_type, offset, limit)
-            if not root_comment_res:
+        
+        # 添加循环保护机制
+        max_pages = 25  # 最大页数限制
+        page_count = 0
+        empty_result_count = 0  # 连续空结果计数
+        seen_offsets = set()  # 记录已处理的offset，防止重复
+        
+        while not is_end and page_count < max_pages:
+            page_count += 1
+            utils.logger.info(f"[ZhihuClient.get_note_all_comments] Getting comments for {content.content_id}, page {page_count}, offset: {offset}")
+            
+            try:
+                root_comment_res = await self.get_root_comments(content.content_id, content.content_type, offset, limit)
+                if not root_comment_res:
+                    empty_result_count += 1
+                    utils.logger.warning(f"[ZhihuClient.get_note_all_comments] Empty response for {content.content_id}, count: {empty_result_count}")
+                    if empty_result_count >= 3:  # 连续3次空结果则退出
+                        utils.logger.error(f"[ZhihuClient.get_note_all_comments] Too many empty responses, breaking loop")
+                        break
+                    continue
+                
+                paging_info = root_comment_res.get("paging", {})
+                is_end = paging_info.get("is_end", True)  # 默认为True，更安全
+                new_offset = self._extractor.extract_offset(paging_info)
+                
+                # 检查offset重复
+                if new_offset and new_offset in seen_offsets:
+                    utils.logger.warning(f"[ZhihuClient.get_note_all_comments] Duplicate offset detected: {new_offset}, breaking loop")
+                    break
+                
+                if new_offset:
+                    seen_offsets.add(new_offset)
+                    offset = new_offset
+                
+                comments = self._extractor.extract_comments(content, root_comment_res.get("data"))
+
+                if not comments:
+                    empty_result_count += 1
+                    utils.logger.warning(f"[ZhihuClient.get_note_all_comments] No comments extracted for {content.content_id}, count: {empty_result_count}")
+                    if empty_result_count >= 3:  # 连续3次无评论则退出
+                        utils.logger.error(f"[ZhihuClient.get_note_all_comments] Too many empty comment extractions, breaking loop")
+                        break
+                    continue
+                
+                # 重置空结果计数
+                empty_result_count = 0
+
+                if callback:
+                    await callback(comments)
+
+                result.extend(comments)
+                await self.get_comments_all_sub_comments(content, comments, crawl_interval=crawl_interval, callback=callback)
+                await asyncio.sleep(crawl_interval)
+                
+            except Exception as ex:
+                utils.logger.error(f"[ZhihuClient.get_note_all_comments] Error getting comments for {content.content_id}: {ex}")
                 break
-            paging_info = root_comment_res.get("paging", {})
-            is_end = paging_info.get("is_end")
-            offset = self._extractor.extract_offset(paging_info)
-            comments = self._extractor.extract_comments(content, root_comment_res.get("data"))
-
-            if not comments:
-                break
-
-            if callback:
-                await callback(comments)
-
-            result.extend(comments)
-            await self.get_comments_all_sub_comments(content, comments, crawl_interval=crawl_interval, callback=callback)
-            await asyncio.sleep(crawl_interval)
+                
+        utils.logger.info(f"[ZhihuClient.get_note_all_comments] Finished getting comments for {content.content_id}, total pages: {page_count}, total comments: {len(result)}")
         return result
 
     async def get_comments_all_sub_comments(self, content: ZhihuContent, comments: List[ZhihuComment], crawl_interval: float = 1.0,
@@ -316,26 +357,68 @@ class ZhiHuClient(AbstractApiClient):
             if parment_comment.sub_comment_count == 0:
                 continue
 
+            # 添加子评论循环保护机制
             is_end: bool = False
             offset: str = ""
             limit: int = 10
-            while not is_end:
-                child_comment_res = await self.get_child_comments(parment_comment.comment_id, offset, limit)
-                if not child_comment_res:
+            max_sub_pages = 50  # 每个评论最大子评论页数
+            sub_page_count = 0
+            empty_result_count = 0
+            seen_sub_offsets = set()  # 记录已处理的子评论offset
+            
+            utils.logger.info(f"[ZhihuClient.get_comments_all_sub_comments] Getting sub comments for comment {parment_comment.comment_id}, expected count: {parment_comment.sub_comment_count}")
+            
+            while not is_end and sub_page_count < max_sub_pages:
+                sub_page_count += 1
+                
+                try:
+                    child_comment_res = await self.get_child_comments(parment_comment.comment_id, offset, limit)
+                    if not child_comment_res:
+                        empty_result_count += 1
+                        utils.logger.warning(f"[ZhihuClient.get_comments_all_sub_comments] Empty response for comment {parment_comment.comment_id}, count: {empty_result_count}")
+                        if empty_result_count >= 3:
+                            utils.logger.error(f"[ZhihuClient.get_comments_all_sub_comments] Too many empty responses, breaking loop")
+                            break
+                        continue
+                        
+                    paging_info = child_comment_res.get("paging", {})
+                    is_end = paging_info.get("is_end", True)  # 默认为True，更安全
+                    new_offset = self._extractor.extract_offset(paging_info)
+                    
+                    # 检查子评论offset重复
+                    if new_offset and new_offset in seen_sub_offsets:
+                        utils.logger.warning(f"[ZhihuClient.get_comments_all_sub_comments] Duplicate sub offset detected: {new_offset}, breaking loop")
+                        break
+                    
+                    if new_offset:
+                        seen_sub_offsets.add(new_offset)
+                        offset = new_offset
+                    
+                    sub_comments = self._extractor.extract_comments(content, child_comment_res.get("data"))
+
+                    if not sub_comments:
+                        empty_result_count += 1
+                        utils.logger.warning(f"[ZhihuClient.get_comments_all_sub_comments] No sub comments extracted for comment {parment_comment.comment_id}, count: {empty_result_count}")
+                        if empty_result_count >= 3:
+                            utils.logger.error(f"[ZhihuClient.get_comments_all_sub_comments] Too many empty sub comment extractions, breaking loop")
+                            break
+                        continue
+                    
+                    # 重置空结果计数
+                    empty_result_count = 0
+
+                    if callback:
+                        await callback(sub_comments)
+
+                    all_sub_comments.extend(sub_comments)
+                    await asyncio.sleep(crawl_interval)
+                    
+                except Exception as ex:
+                    utils.logger.error(f"[ZhihuClient.get_comments_all_sub_comments] Error getting sub comments for comment {parment_comment.comment_id}: {ex}")
                     break
-                paging_info = child_comment_res.get("paging", {})
-                is_end = paging_info.get("is_end")
-                offset = self._extractor.extract_offset(paging_info)
-                sub_comments = self._extractor.extract_comments(content, child_comment_res.get("data"))
-
-                if not sub_comments:
-                    break
-
-                if callback:
-                    await callback(sub_comments)
-
-                all_sub_comments.extend(sub_comments)
-                await asyncio.sleep(crawl_interval)
+                    
+            utils.logger.info(f"[ZhihuClient.get_comments_all_sub_comments] Finished getting sub comments for comment {parment_comment.comment_id}, pages: {sub_page_count}")
+            
         return all_sub_comments
 
     async def get_creator_info(self, url_token: str) -> Optional[ZhihuCreator]:
