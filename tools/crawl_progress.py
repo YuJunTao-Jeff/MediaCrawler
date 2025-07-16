@@ -246,9 +246,9 @@ class CrawlProgressManager:
                items_processed = VALUES(items_processed),
                last_item_hash = VALUES(last_item_hash),
                created_time = VALUES(created_time)""",
-            (self.task_id, keyword, self.platform, page, 
-             json.dumps(checkpoint_data), len(checkpoint_data.get('items', [])), 
-             data_hash, current_time)
+            self.task_id, keyword, self.platform, page, 
+            json.dumps(checkpoint_data), len(checkpoint_data.get('items', [])), 
+            data_hash, current_time
         )
     
     async def get_checkpoint(self, keyword: str, page: int) -> Optional[Dict[str, Any]]:
@@ -316,11 +316,11 @@ class CrawlProgressManager:
             # 重置特定关键词
             await self.db.execute(
                 "DELETE FROM keyword_progress WHERE task_id = %s AND keyword = %s",
-                (self.task_id, keyword)
+                self.task_id, keyword
             )
             await self.db.execute(
                 "DELETE FROM crawl_checkpoints WHERE task_id = %s AND keyword = %s",
-                (self.task_id, keyword)
+                self.task_id, keyword
             )
             if keyword in self.keyword_progress:
                 del self.keyword_progress[keyword]
@@ -351,5 +351,5 @@ class CrawlProgressManager:
             current_time = int(time.time() * 1000)
             await self.db.execute(
                 "UPDATE crawl_task SET status = 'completed', last_update_time = %s WHERE task_id = %s",
-                (current_time, self.task_id)
+                current_time, self.task_id
             )

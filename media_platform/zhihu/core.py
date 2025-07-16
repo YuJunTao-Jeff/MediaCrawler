@@ -214,9 +214,12 @@ class ZhihuCrawler(AbstractCrawler):
                     last_item = content_list[-1].model_dump() if content_list else None
                     await self.update_crawl_progress(keyword, page, len(content_list), last_item)
                     
-                    # 保存检查点
+                    # 保存检查点（只保存必要的元数据）
                     checkpoint_data = {
-                        'content_list': [content.model_dump() for content in content_list],
+                        'page': page,
+                        'items_count': len(content_list),
+                        'last_item_id': content_list[-1].content_id if content_list else None,
+                        'last_item_time': content_list[-1].created_time if content_list else None,
                         'page_stats': {
                             'new': page_new_items,
                             'duplicate': page_duplicate_items,
@@ -236,7 +239,9 @@ class ZhihuCrawler(AbstractCrawler):
                     page += 1
                     continue
                 except Exception as e:
+                    import traceback
                     utils.logger.error(f"[ZhihuCrawler.search] Unexpected error: {e}")
+                    utils.logger.error(f"[ZhihuCrawler.search] Traceback: {traceback.format_exc()}")
                     failed_items += 1
                     page += 1
                     continue
