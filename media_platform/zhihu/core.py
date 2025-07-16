@@ -112,7 +112,7 @@ class ZhihuCrawler(AbstractCrawler):
                 crawler_type_var.set(config.CRAWLER_TYPE)
                 if config.CRAWLER_TYPE == "search":
                     # Search for notes and retrieve their comment information.
-                    await self.search()
+                    await self.search_with_resume()  # 使用新的通用搜索流程
                 elif config.CRAWLER_TYPE == "detail":
                     # Get the information and comments of the specified post
                     await self.get_specified_notes()
@@ -128,130 +128,59 @@ class ZhihuCrawler(AbstractCrawler):
             # 清理断点续爬资源
             await self.cleanup_crawl_progress()
 
-    async def search(self) -> None:
-        """Search for notes and retrieve their comment information."""
-        utils.logger.info("[ZhihuCrawler.search] Begin search zhihu keywords")
-        zhihu_limit_count = 20  # zhihu limit page fixed value
-        if config.CRAWLER_MAX_NOTES_COUNT < zhihu_limit_count:
-            config.CRAWLER_MAX_NOTES_COUNT = zhihu_limit_count
+    # ==================== 实现新的简化接口 ====================
+    
+    async def get_page_content(self, keyword: str, page: int) -> List[Dict]:
+        """获取指定关键词和页码的内容列表"""
+        try:
+            content_list: List[ZhihuContent] = await self.zhihu_client.get_note_by_keyword(
+                keyword=keyword,
+                page=page,
+            )
+            # 转换为Dict格式
+            return [content.model_dump() for content in content_list] if content_list else []
+        except DataFetchError:
+            utils.logger.error(f"[ZhihuCrawler.get_page_content] Search content error for keyword: {keyword}, page: {page}")
+            raise
+        except Exception as e:
+            utils.logger.error(f"[ZhihuCrawler.get_page_content] Unexpected error: {e}")
+            raise
+
+    async def store_content(self, content_item: Dict) -> None:
+        """存储单个内容项"""
+        try:
+            # 将Dict转换回ZhihuContent对象
+            zhihu_content = ZhihuContent(**content_item)
+            await zhihu_store.update_zhihu_content(zhihu_content)
+        except Exception as e:
+            utils.logger.error(f"[ZhihuCrawler.store_content] Store content failed: {e}")
+            raise
+
+    def get_platform_config(self) -> Dict:
+        """获取知乎平台特定配置"""
+        return {
+            'page_limit': 20,  # 知乎每页固定20条
+            'enable_comments': config.ENABLE_GET_COMMENTS,
+            'max_empty_pages': 3
+        }
+
+    async def batch_get_comments(self, content_list: List[Dict]) -> None:
+        """批量获取评论"""
+        if not config.ENABLE_GET_COMMENTS:
+            return
         
-        for keyword in config.KEYWORDS.split(","):
-            keyword = keyword.strip()
-            if not keyword:
+        # 转换为ZhihuContent对象
+        zhihu_content_list = []
+        for content_dict in content_list:
+            try:
+                zhihu_content = ZhihuContent(**content_dict)
+                zhihu_content_list.append(zhihu_content)
+            except Exception as e:
+                utils.logger.error(f"[ZhihuCrawler.batch_get_comments] Convert content failed: {e}")
                 continue
-                
-            source_keyword_var.set(keyword)
-            utils.logger.info(f"[ZhihuCrawler.search] Current search keyword: {keyword}")
-            
-            # 获取断点续爬起始页
-            start_page = await self.get_resume_start_page(keyword)
-            
-            # 如果起始页是999999，表示该关键词已完成
-            if start_page >= 999999:
-                utils.logger.info(f"[ZhihuCrawler.search] Keyword {keyword} already completed, skip")
-                continue
-            
-            page = max(start_page, 1)
-            total_items = 0
-            new_items = 0
-            duplicate_items = 0
-            failed_items = 0
-            empty_page_count = 0
-            
-            while (page - start_page + 1) * zhihu_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
-                # 检查是否应该停止
-                if await self.should_stop_keyword_crawl(keyword, page):
-                    utils.logger.info(f"[ZhihuCrawler.search] Stop crawling keyword {keyword} at page {page}")
-                    break
-
-                try:
-                    utils.logger.info(f"[ZhihuCrawler.search] search zhihu keyword: {keyword}, page: {page}")
-                    content_list: List[ZhihuContent]  = await self.zhihu_client.get_note_by_keyword(
-                        keyword=keyword,
-                        page=page,
-                    )
-                    utils.logger.info(f"[ZhihuCrawler.search] Search contents count: {len(content_list) if content_list else 0}")
-                    
-                    if not content_list:
-                        empty_page_count += 1
-                        if not await self.handle_empty_page(keyword, page):
-                            utils.logger.info(f"[ZhihuCrawler.search] Too many empty pages for keyword {keyword}, stopping")
-                            break
-                        page += 1
-                        continue
-                    else:
-                        empty_page_count = 0
-
-                    # 批量处理数据
-                    processed_items = await self.process_crawl_batch(keyword, page, 
-                                                                   [content.model_dump() for content in content_list])
-                    
-                    # 去重和存储
-                    page_new_items = 0
-                    page_duplicate_items = 0
-                    page_failed_items = 0
-                    
-                    for content in content_list:
-                        total_items += 1
-                        
-                        # 检查是否应该跳过（去重）
-                        if await self.should_skip_content(content.model_dump(), keyword):
-                            duplicate_items += 1
-                            page_duplicate_items += 1
-                            continue
-                        
-                        # 存储数据
-                        try:
-                            await zhihu_store.update_zhihu_content(content)
-                            new_items += 1
-                            page_new_items += 1
-                        except Exception as e:
-                            failed_items += 1
-                            page_failed_items += 1
-                            utils.logger.error(f"[ZhihuCrawler.search] Store content failed: {e}")
-
-                    # 更新进度
-                    last_item = content_list[-1].model_dump() if content_list else None
-                    await self.update_crawl_progress(keyword, page, len(content_list), last_item)
-                    
-                    # 保存检查点（只保存必要的元数据）
-                    checkpoint_data = {
-                        'page': page,
-                        'items_count': len(content_list),
-                        'last_item_id': content_list[-1].content_id if content_list else None,
-                        'last_item_time': content_list[-1].created_time if content_list else None,
-                        'page_stats': {
-                            'new': page_new_items,
-                            'duplicate': page_duplicate_items,
-                            'failed': page_failed_items
-                        }
-                    }
-                    await self.save_crawl_checkpoint(keyword, page, checkpoint_data)
-
-                    # 获取评论
-                    await self.batch_get_content_comments(content_list)
-                    
-                    page += 1
-                    
-                except DataFetchError:
-                    utils.logger.error("[ZhihuCrawler.search] Search content error")
-                    failed_items += 1
-                    page += 1
-                    continue
-                except Exception as e:
-                    import traceback
-                    utils.logger.error(f"[ZhihuCrawler.search] Unexpected error: {e}")
-                    utils.logger.error(f"[ZhihuCrawler.search] Traceback: {traceback.format_exc()}")
-                    failed_items += 1
-                    page += 1
-                    continue
-            
-            # 标记关键词完成
-            await self.mark_keyword_completed(keyword)
-            
-            # 更新统计信息
-            await self.update_crawl_statistics(total_items, new_items, duplicate_items, failed_items)
-            utils.logger.info(f"[ZhihuCrawler.search] Keyword {keyword} completed: total={total_items}, new={new_items}, duplicate={duplicate_items}, failed={failed_items}")
+        
+        # 调用原有的评论获取方法
+        await self.batch_get_content_comments(zhihu_content_list)
 
     async def batch_get_content_comments(self, content_list: List[ZhihuContent]):
         """
