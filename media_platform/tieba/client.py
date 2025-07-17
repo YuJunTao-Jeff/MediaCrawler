@@ -74,7 +74,11 @@ class BaiduTieBaClient(AbstractApiClient):
                 headers=self.headers, **kwargs
             )
 
-        if response.status_code != 200:
+        if response.status_code == 403:
+            # 403 通常是安全验证，抛出特殊异常让上层处理
+            utils.logger.warning(f"Security verification detected, status code: {response.status_code}, url: {url}")
+            raise Exception("Security verification detected - need browser login")
+        elif response.status_code != 200:
             utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
             utils.logger.error(f"Request failed, response: {response.text}")
             raise Exception(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")

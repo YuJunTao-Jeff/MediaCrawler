@@ -53,32 +53,56 @@ class TieBaCrawler(AbstractCrawler):
         Returns:
 
         """
-        ip_proxy_pool, httpx_proxy_format = None, None
+        playwright_proxy_format, httpx_proxy_format = None, None
         if config.ENABLE_IP_PROXY:
             utils.logger.info("[BaiduTieBaCrawler.start] Begin create ip proxy pool ...")
             ip_proxy_pool = await create_ip_pool(config.IP_PROXY_POOL_COUNT, enable_validate_ip=True)
             ip_proxy_info: IpInfoModel = await ip_proxy_pool.get_proxy()
-            _, httpx_proxy_format = format_proxy_info(ip_proxy_info)
+            playwright_proxy_format, httpx_proxy_format = format_proxy_info(ip_proxy_info)
             utils.logger.info(f"[BaiduTieBaCrawler.start] Init default ip proxy, value: {httpx_proxy_format}")
 
-        # Create a client to interact with the baidutieba website.
-        self.tieba_client = BaiduTieBaClient(
-            ip_pool=ip_proxy_pool,
-            default_ip_proxy=httpx_proxy_format,
-        )
-        crawler_type_var.set(config.CRAWLER_TYPE)
-        if config.CRAWLER_TYPE == "search":
-            # Search for notes and retrieve their comment information.
-            await self.search()
-            await self.get_specified_tieba_notes()
-        elif config.CRAWLER_TYPE == "detail":
-            # Get the information and comments of the specified post
-            await self.get_specified_notes()
-        elif config.CRAWLER_TYPE == "creator":
-            # Get creator's information and their notes and comments
-            await self.get_creators_and_notes()
-        else:
-            pass
+        try:
+            async with async_playwright() as playwright:
+                # 根据配置选择启动模式
+                if config.ENABLE_CDP_MODE:
+                    utils.logger.info("🚀 使用CDP模式，需要启动CDP浏览器")
+                    self.browser_context = await self.launch_browser_with_cdp(
+                        playwright, playwright_proxy_format, self.user_agent,
+                        headless=config.CDP_HEADLESS
+                    )
+                else:
+                    utils.logger.info("🌐 使用标准模式，无需启动CDP浏览器")
+                    # Launch a browser context.
+                    chromium = playwright.chromium
+                    self.browser_context = await self.launch_browser(
+                        chromium, playwright_proxy_format, self.user_agent, 
+                        headless=config.HEADLESS
+                    )
+
+                # Create a client to interact with the baidutieba website.
+                self.tieba_client = BaiduTieBaClient(
+                    ip_pool=ip_proxy_pool if config.ENABLE_IP_PROXY else None,
+                    default_ip_proxy=httpx_proxy_format,
+                )
+                
+                crawler_type_var.set(config.CRAWLER_TYPE)
+                if config.CRAWLER_TYPE == "search":
+                    # Search for notes and retrieve their comment information.
+                    await self.search()
+                    await self.get_specified_tieba_notes()
+                elif config.CRAWLER_TYPE == "detail":
+                    # Get the information and comments of the specified post
+                    await self.get_specified_notes()
+                elif config.CRAWLER_TYPE == "creator":
+                    # Get creator's information and their notes and comments
+                    await self.get_creators_and_notes()
+                else:
+                    pass
+        except Exception as e:
+            utils.logger.error(f"[BaiduTieBaCrawler.start] Error: {e}")
+            raise e
+        finally:
+            await self.close()
 
         utils.logger.info("[BaiduTieBaCrawler.start] Tieba Crawler finished ...")
 
@@ -104,19 +128,34 @@ class TieBaCrawler(AbstractCrawler):
                     continue
                 try:
                     utils.logger.info(f"[BaiduTieBaCrawler.search] search tieba keyword: {keyword}, page: {page}")
-                    notes_list: List[TiebaNote] = await self.tieba_client.get_notes_by_keyword(
-                        keyword=keyword,
-                        page=page,
-                        page_size=tieba_limit_count,
-                        sort=SearchSortType.TIME_DESC,
-                        note_type=SearchNoteType.FIXED_THREAD
-                    )
-                    if not notes_list:
-                        utils.logger.info(f"[BaiduTieBaCrawler.search] Search note list is empty")
-                        break
-                    utils.logger.info(f"[BaiduTieBaCrawler.search] Note list len: {len(notes_list)}")
-                    await self.get_specified_notes(note_id_list=[note_detail.note_id for note_detail in notes_list])
-                    page += 1
+                    
+                    # 尝试通过API获取数据
+                    try:
+                        notes_list: List[TiebaNote] = await self.tieba_client.get_notes_by_keyword(
+                            keyword=keyword,
+                            page=page,
+                            page_size=tieba_limit_count,
+                            sort=SearchSortType.TIME_DESC,
+                            note_type=SearchNoteType.FIXED_THREAD
+                        )
+                        if not notes_list:
+                            utils.logger.info(f"[BaiduTieBaCrawler.search] Search note list is empty")
+                            break
+                        utils.logger.info(f"[BaiduTieBaCrawler.search] Note list len: {len(notes_list)}")
+                        await self.get_specified_notes(note_id_list=[note_detail.note_id for note_detail in notes_list])
+                        page += 1
+                    except Exception as api_ex:
+                        # 如果API请求失败，可能是遇到安全验证，使用浏览器导航
+                        error_msg = str(api_ex)
+                        if ("Security verification detected" in error_msg or 
+                            "403" in error_msg or 
+                            "IP已经被Block" in error_msg):
+                            utils.logger.info("[BaiduTieBaCrawler.search] 检测到安全验证，切换到浏览器模式进行登录")
+                            await self.handle_security_verification(keyword)
+                            break
+                        else:
+                            raise api_ex
+                            
                 except Exception as ex:
                     utils.logger.error(
                         f"[BaiduTieBaCrawler.search] Search keywords error, current page: {page}, current keyword: {keyword}, err: {ex}")
@@ -298,11 +337,36 @@ class TieBaCrawler(AbstractCrawler):
                 headless=headless,
                 proxy=playwright_proxy,  # type: ignore
                 viewport={"width": 1920, "height": 1080},
-                user_agent=user_agent
+                user_agent=user_agent,
+                args=[
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-extensions",
+                    "--disable-plugins-discovery",
+                    "--no-first-run",
+                    "--disable-default-apps"
+                ]
             )
             return browser_context
         else:
-            browser = await chromium.launch(headless=headless, proxy=playwright_proxy)  # type: ignore
+            browser = await chromium.launch(
+                headless=headless, 
+                proxy=playwright_proxy,
+                args=[
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-extensions",
+                    "--disable-plugins-discovery",
+                    "--no-first-run",
+                    "--disable-default-apps"
+                ]
+            )  # type: ignore
             browser_context = await browser.new_context(
                 viewport={"width": 1920, "height": 1080},
                 user_agent=user_agent
@@ -341,13 +405,54 @@ class TieBaCrawler(AbstractCrawler):
         Returns:
 
         """
-        # 如果使用CDP模式，需要特殊处理
-        if self.cdp_manager:
-            await self.cdp_manager.cleanup()
-            self.cdp_manager = None
-        else:
-            await self.browser_context.close()
-        utils.logger.info("[BaiduTieBaCrawler.close] Browser context closed ...")
+        try:
+            # 如果使用CDP模式，需要特殊处理
+            if self.cdp_manager:
+                await self.cdp_manager.cleanup()
+                self.cdp_manager = None
+            elif hasattr(self, 'browser_context') and self.browser_context:
+                await self.browser_context.close()
+            utils.logger.info("[BaiduTieBaCrawler.close] Browser context closed ...")
+        except Exception as e:
+            utils.logger.warning(f"[BaiduTieBaCrawler.close] Error closing browser context: {e}")
+
+    async def handle_security_verification(self, keyword: str):
+        """处理安全验证，使用浏览器导航到登录页面"""
+        try:
+            if not hasattr(self, 'browser_context') or not self.browser_context:
+                utils.logger.error("[BaiduTieBaCrawler.handle_security_verification] Browser context not available")
+                return
+                
+            # 创建新页面并导航到贴吧首页
+            page = await self.browser_context.new_page()
+            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification] 正在导航到贴吧首页...")
+            await page.goto("https://tieba.baidu.com")
+            
+            # 等待页面加载
+            await page.wait_for_timeout(3000)
+            
+            # 检查是否需要登录
+            try:
+                # 尝试查找登录按钮或登录相关元素
+                login_element = await page.wait_for_selector(".u_login", timeout=5000)
+                if login_element:
+                    utils.logger.info("[BaiduTieBaCrawler.handle_security_verification] 检测到需要登录，请在浏览器中完成登录...")
+                    # 点击登录按钮
+                    await login_element.click()
+                    
+                    # 等待用户完成登录（等待较长时间）
+                    utils.logger.info("[BaiduTieBaCrawler.handle_security_verification] 等待用户登录完成...")
+                    await page.wait_for_timeout(30000)  # 等待30秒供用户登录
+                    
+            except Exception:
+                # 可能已经登录或页面结构不同
+                utils.logger.info("[BaiduTieBaCrawler.handle_security_verification] 页面可能已经登录或需要手动处理")
+                
+            # 保持页面打开供用户操作
+            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification] 浏览器页面已打开，请手动完成验证和登录")
+            
+        except Exception as e:
+            utils.logger.error(f"[BaiduTieBaCrawler.handle_security_verification] Error: {e}")
 
     # 实现抽象方法
     def extract_item_id(self, content: dict) -> str:
