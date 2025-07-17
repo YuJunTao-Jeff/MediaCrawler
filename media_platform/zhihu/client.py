@@ -46,6 +46,11 @@ class ZhiHuClient(AbstractApiClient):
         self.default_headers = headers
         self.cookie_dict = cookie_dict
         self._extractor = ZhihuExtractor()
+        
+        # 代理降级相关状态
+        self._proxy_failed = False  # 代理失败标记
+        self._proxy_retry_count = 0  # 代理重试计数
+        self._max_proxy_retries = 3  # 最大代理重试次数
 
     async def _pre_headers(self, url: str) -> Dict:
         """
@@ -81,39 +86,84 @@ class ZhiHuClient(AbstractApiClient):
 
         # 处理代理参数
         proxy = None
-        if self.proxies:
-            # 如果proxies是字典，取第一个代理
+        use_proxy = False
+        
+        # 如果代理未失败且配置了代理，则使用代理
+        if not self._proxy_failed and self.proxies:
             if isinstance(self.proxies, dict):
                 proxy = list(self.proxies.values())[0] if self.proxies else None
             else:
                 proxy = self.proxies
+            use_proxy = True
         
-        async with httpx.AsyncClient(proxy=proxy) as client:
-            response = await client.request(
-                method, url, timeout=self.timeout,
-                **kwargs
-            )
-
-        if response.status_code != 200:
-            utils.logger.error(f"[ZhiHuClient.request] Requset Url: {url}, Request error: {response.text}")
-            if response.status_code == 403:
-                raise ForbiddenError(response.text)
-            elif response.status_code == 404: # 如果一个content没有评论也是404
-                return {}
-
-            raise DataFetchError(response.text)
-
-        if return_response:
-            return response.text
+        # 尝试请求
         try:
-            data: Dict = response.json()
-            if data.get("error"):
-                utils.logger.error(f"[ZhiHuClient.request] Request error: {data}")
-                raise DataFetchError(data.get("error", {}).get("message"))
-            return data
-        except json.JSONDecodeError:
-            utils.logger.error(f"[ZhiHuClient.request] Request error: {response.text}")
-            raise DataFetchError(response.text)
+            async with httpx.AsyncClient(proxy=proxy) as client:
+                response = await client.request(
+                    method, url, timeout=self.timeout,
+                    **kwargs
+                )
+            
+            # 请求成功，重置代理重试计数
+            if use_proxy:
+                self._proxy_retry_count = 0
+
+            if response.status_code != 200:
+                utils.logger.error(f"[ZhiHuClient.request] Requset Url: {url}, Request error: {response.text}")
+                if response.status_code == 403:
+                    raise ForbiddenError(response.text)
+                elif response.status_code == 404: # 如果一个content没有评论也是404
+                    return {}
+
+                raise DataFetchError(response.text)
+
+            if return_response:
+                return response.text
+            try:
+                data: Dict = response.json()
+                if data.get("error"):
+                    utils.logger.error(f"[ZhiHuClient.request] Request error: {data}")
+                    raise DataFetchError(data.get("error", {}).get("message"))
+                return data
+            except json.JSONDecodeError:
+                utils.logger.error(f"[ZhiHuClient.request] Request error: {response.text}")
+                raise DataFetchError(response.text)
+                
+        except (httpx.ProxyError, httpx.ConnectError, httpx.TimeoutException) as e:
+            # 代理相关错误处理
+            if use_proxy:
+                self._proxy_retry_count += 1
+                utils.logger.warning(f"[ZhiHuClient] 代理请求失败 ({self._proxy_retry_count}/{self._max_proxy_retries}): {e}")
+                
+                # 如果重试次数未达到上限，直接重试
+                if self._proxy_retry_count < self._max_proxy_retries:
+                    utils.logger.info(f"[ZhiHuClient] 重试代理请求: {url}")
+                    return await self.request(method, url, **kwargs)
+                else:
+                    # 达到重试上限，标记代理失败并降级到无代理模式
+                    self._proxy_failed = True
+                    utils.logger.error(f"[ZhiHuClient] 代理连续失败{self._max_proxy_retries}次，降级到无代理模式")
+                    utils.logger.info(f"[ZhiHuClient] 使用无代理模式重试请求: {url}")
+                    return await self.request(method, url, **kwargs)
+            else:
+                # 无代理模式下的连接错误，直接抛出
+                utils.logger.error(f"[ZhiHuClient] 无代理模式下请求失败: {e}")
+                raise e
+    
+    def reset_proxy_status(self):
+        """重置代理状态，允许重新尝试使用代理"""
+        self._proxy_failed = False
+        self._proxy_retry_count = 0
+        utils.logger.info("[ZhiHuClient] 代理状态已重置")
+    
+    def get_proxy_status(self) -> Dict[str, Any]:
+        """获取当前代理状态信息"""
+        return {
+            "proxy_failed": self._proxy_failed,
+            "proxy_retry_count": self._proxy_retry_count,
+            "max_proxy_retries": self._max_proxy_retries,
+            "current_mode": "无代理模式" if self._proxy_failed else "代理模式"
+        }
 
 
     async def get(self, uri: str, params=None, **kwargs) -> Union[Response, Dict, str]:

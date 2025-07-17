@@ -185,7 +185,23 @@ class WeiboClient:
         try:
             result = await self.simple_get(url)
             # 适配返回格式，保持与原有接口兼容
-            return result.get("data", {})
+            data = result.get("data", {})
+            
+            # 修复分页逻辑 - 确保返回正确的分页信息
+            if isinstance(data, dict):
+                comment_list = data.get("data", [])
+                # 如果没有评论数据或评论数据为空，设置max_id为0表示结束
+                if not comment_list or len(comment_list) == 0:
+                    data["max_id"] = 0
+                    data["max_id_type"] = 0
+                else:
+                    # 递增页码，避免无限循环
+                    data["max_id"] = page + 1
+                    data["max_id_type"] = max_id_type
+                    
+                utils.logger.info(f"[WeiboClient.get_note_comments] MCP方式获取评论成功，当前页:{page}，评论数:{len(comment_list)}")
+            
+            return data
         except Exception as e:
             utils.logger.error(f"[WeiboClient.get_note_comments] MCP方式获取评论失败: {e}")
             # 降级到原有方式
@@ -222,20 +238,65 @@ class WeiboClient:
         is_end = False
         max_id = -1
         max_id_type = 0
-        while not is_end and len(result) < max_count:
-            comments_res = await self.get_note_comments(note_id, max_id, max_id_type)
-            max_id: int = comments_res.get("max_id")
-            max_id_type: int = comments_res.get("max_id_type")
-            comment_list: List[Dict] = comments_res.get("data", [])
-            is_end = max_id == 0
-            if len(result) + len(comment_list) > max_count:
-                comment_list = comment_list[:max_count - len(result)]
-            if callback:  # 如果有回调函数，就执行回调函数
-                await callback(note_id, comment_list)
-            await asyncio.sleep(crawl_interval)
-            result.extend(comment_list)
-            sub_comment_result = await self.get_comments_all_sub_comments(note_id, comment_list, callback)
-            result.extend(sub_comment_result)
+        page_count = 0
+        max_pages = 50  # 最大页数限制，防止无限循环
+        empty_result_count = 0  # 连续空结果计数
+        max_empty_results = 3  # 最大连续空结果数
+        
+        utils.logger.info(f"[WeiboClient.get_note_all_comments] 开始获取微博评论，note_id: {note_id}")
+        
+        while not is_end and len(result) < max_count and page_count < max_pages:
+            page_count += 1
+            utils.logger.info(f"[WeiboClient.get_note_all_comments] 正在获取第{page_count}页评论，当前已获取:{len(result)}条")
+            
+            try:
+                comments_res = await self.get_note_comments(note_id, max_id, max_id_type)
+                max_id: int = comments_res.get("max_id", 0)
+                max_id_type: int = comments_res.get("max_id_type", 0)
+                comment_list: List[Dict] = comments_res.get("data", [])
+                
+                # 检查是否结束
+                is_end = max_id == 0
+                
+                # 检查空结果
+                if not comment_list or len(comment_list) == 0:
+                    empty_result_count += 1
+                    utils.logger.info(f"[WeiboClient.get_note_all_comments] 第{page_count}页无评论数据，连续空结果:{empty_result_count}")
+                    if empty_result_count >= max_empty_results:
+                        utils.logger.info(f"[WeiboClient.get_note_all_comments] 连续{max_empty_results}页无数据，结束爬取")
+                        break
+                else:
+                    empty_result_count = 0  # 重置空结果计数
+                    
+                # 限制评论数量
+                if len(result) + len(comment_list) > max_count:
+                    comment_list = comment_list[:max_count - len(result)]
+                    
+                # 执行回调函数
+                if callback and comment_list:
+                    await callback(note_id, comment_list)
+                    
+                # 添加延迟
+                await asyncio.sleep(crawl_interval)
+                
+                # 添加到结果中
+                result.extend(comment_list)
+                
+                # 获取子评论
+                sub_comment_result = await self.get_comments_all_sub_comments(note_id, comment_list, callback)
+                result.extend(sub_comment_result)
+                
+                utils.logger.info(f"[WeiboClient.get_note_all_comments] 第{page_count}页获取完成，本页:{len(comment_list)}条，总计:{len(result)}条")
+                
+            except Exception as e:
+                utils.logger.error(f"[WeiboClient.get_note_all_comments] 获取第{page_count}页评论失败: {e}")
+                # 发生异常时增加空结果计数，避免无限重试
+                empty_result_count += 1
+                if empty_result_count >= max_empty_results:
+                    utils.logger.error(f"[WeiboClient.get_note_all_comments] 连续失败{max_empty_results}次，结束爬取")
+                    break
+                
+        utils.logger.info(f"[WeiboClient.get_note_all_comments] 评论获取完成，总共获取:{len(result)}条，页数:{page_count}")
         return result
 
     @staticmethod

@@ -46,26 +46,83 @@ class BilibiliClient(AbstractApiClient):
         self._host = "https://api.bilibili.com"
         self.playwright_page = playwright_page
         self.cookie_dict = cookie_dict
+        
+        # 代理降级相关状态
+        self._proxy_failed = False  # 代理失败标记
+        self._proxy_retry_count = 0  # 代理重试计数
+        self._max_proxy_retries = 3  # 最大代理重试次数
 
     async def request(self, method, url, **kwargs) -> Any:
         # 处理代理参数
         proxy = None
-        if self.proxies:
+        use_proxy = False
+        
+        # 如果代理未失败且配置了代理，则使用代理
+        if not self._proxy_failed and self.proxies:
             if isinstance(self.proxies, dict):
                 proxy = list(self.proxies.values())[0] if self.proxies else None
             else:
                 proxy = self.proxies
+            use_proxy = True
         
-        async with httpx.AsyncClient(proxy=proxy) as client:
-            response = await client.request(
-                method, url, timeout=self.timeout,
-                **kwargs
-            )
-        data: Dict = response.json()
-        if data.get("code") != 0:
-            raise DataFetchError(data.get("message", "unkonw error"))
-        else:
-            return data.get("data", {})
+        # 尝试请求
+        try:
+            async with httpx.AsyncClient(proxy=proxy) as client:
+                response = await client.request(
+                    method, url, timeout=self.timeout,
+                    **kwargs
+                )
+            
+            # 请求成功，重置代理重试计数
+            if use_proxy:
+                self._proxy_retry_count = 0
+                
+            data: Dict = response.json()
+            if data.get("code") != 0:
+                raise DataFetchError(data.get("message", "unknown error"))
+            else:
+                return data.get("data", {})
+                
+        except (httpx.ProxyError, httpx.ConnectError, httpx.TimeoutException) as e:
+            # 代理相关错误处理
+            if use_proxy:
+                self._proxy_retry_count += 1
+                utils.logger.warning(f"[BilibiliClient] 代理请求失败 ({self._proxy_retry_count}/{self._max_proxy_retries}): {e}")
+                
+                # 如果重试次数未达到上限，直接重试
+                if self._proxy_retry_count < self._max_proxy_retries:
+                    utils.logger.info(f"[BilibiliClient] 重试代理请求: {url}")
+                    return await self.request(method, url, **kwargs)
+                else:
+                    # 达到重试上限，标记代理失败并降级到无代理模式
+                    self._proxy_failed = True
+                    utils.logger.error(f"[BilibiliClient] 代理连续失败{self._max_proxy_retries}次，降级到无代理模式")
+                    utils.logger.info(f"[BilibiliClient] 使用无代理模式重试请求: {url}")
+                    return await self.request(method, url, **kwargs)
+            else:
+                # 无代理模式下的连接错误，直接抛出
+                utils.logger.error(f"[BilibiliClient] 无代理模式下请求失败: {e}")
+                raise e
+                
+        except Exception as e:
+            # 其他异常直接抛出
+            utils.logger.error(f"[BilibiliClient] 请求异常: {e}")
+            raise e
+    
+    def reset_proxy_status(self):
+        """重置代理状态，允许重新尝试使用代理"""
+        self._proxy_failed = False
+        self._proxy_retry_count = 0
+        utils.logger.info("[BilibiliClient] 代理状态已重置")
+    
+    def get_proxy_status(self) -> Dict[str, Any]:
+        """获取当前代理状态信息"""
+        return {
+            "proxy_failed": self._proxy_failed,
+            "proxy_retry_count": self._proxy_retry_count,
+            "max_proxy_retries": self._max_proxy_retries,
+            "current_mode": "无代理模式" if self._proxy_failed else "代理模式"
+        }
 
     async def pre_request_data(self, req_data: Dict) -> Dict:
         """
