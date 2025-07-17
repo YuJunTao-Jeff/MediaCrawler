@@ -58,10 +58,8 @@ class ProxyIpPool:
         """
         utils.logger.info(f"[ProxyIpPool._is_valid_proxy] testing {proxy.ip} is it valid ")
         try:
-            httpx_proxy = {
-                f"{proxy.protocol}": f"http://{proxy.user}:{proxy.password}@{proxy.ip}:{proxy.port}"
-            }
-            async with httpx.AsyncClient(proxies=httpx_proxy) as client:
+            proxy_url = f"http://{proxy.user}:{proxy.password}@{proxy.ip}:{proxy.port}"
+            async with httpx.AsyncClient(proxy=proxy_url) as client:
                 response = await client.get(self.valid_ip_url)
             if response.status_code == 200:
                 return True
@@ -109,9 +107,13 @@ async def create_ip_pool(ip_pool_count: int, enable_validate_ip: bool) -> ProxyI
     :param enable_validate_ip: 是否开启验证IP代理
     :return:
     """
+    ip_provider = IpProxyProvider.get(config.IP_PROXY_PROVIDER_NAME)
+    if not ip_provider:
+        raise Exception(f"Unsupported IP proxy provider: {config.IP_PROXY_PROVIDER_NAME}")
+    
     pool = ProxyIpPool(ip_pool_count=ip_pool_count,
                        enable_validate_ip=enable_validate_ip,
-                       ip_provider=IpProxyProvider.get(config.IP_PROXY_PROVIDER_NAME)
+                       ip_provider=ip_provider
                        )
     await pool.load_proxies()
     return pool

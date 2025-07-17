@@ -27,7 +27,7 @@ WEIBO_SEARCH_TYPE = "popular"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 # 是否开启 IP 代理
-ENABLE_IP_PROXY = False
+ENABLE_IP_PROXY = True
 
 # 未启用代理时的最大爬取间隔，单位秒（暂时仅对XHS有效）
 CRAWLER_MAX_SLEEP_SEC = 8
@@ -37,6 +37,19 @@ IP_PROXY_POOL_COUNT = 2
 
 # 代理IP提供商名称
 IP_PROXY_PROVIDER_NAME = "kuaidaili"
+
+# ==================== 快代理配置 ====================
+# 快代理用户名
+KDL_USER_NAME = "d2867368032"
+
+# 快代理密码
+KDL_USER_PWD = "0h39smdt"
+
+# 快代理 Secret ID
+KDL_SECRET_ID = "olj9unpyex5nffwhecl6"
+
+# 快代理签名
+KDL_SIGNATURE = "n1zziu4o3uqz7w23ct8fveqnwy9x07vr"
 
 # 设置为True不会打开浏览器（无头浏览器）
 # 设置False会打开一个浏览器

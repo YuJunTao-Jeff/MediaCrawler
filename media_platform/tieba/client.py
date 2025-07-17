@@ -100,7 +100,7 @@ class BaiduTieBaClient(AbstractApiClient):
             #     raise Exception(f"Access denied, status code: {response.status_code}")
         if response.status_code != 200:
             utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
-            utils.logger.error(f"Request failed, response: {response.text}")
+            # utils.logger.error(f"Request failed, response: {response.text}")
             raise Exception(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
 
         if response.text == "" or response.text == "blocked":

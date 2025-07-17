@@ -95,6 +95,22 @@ class WeiboClient:
         return await self.request(method="POST", url=f"{self._host}{uri}",
                                   data=json_str, headers=self.headers)
 
+    async def simple_get(self, url: str, params=None) -> Dict:
+        """
+        简化的GET请求方法，使用MCP方式的简单请求头
+        """
+        simple_headers = {'Content-Type': 'application/json'}
+        
+        if params:
+            param_str = urlencode(params)
+            full_url = f"{url}?{param_str}"
+        else:
+            full_url = url
+            
+        async with httpx.AsyncClient() as client:
+            response = await client.get(full_url, headers=simple_headers, timeout=self.timeout)
+            return response.json()
+
     async def pong(self) -> bool:
         """get a note to check if login state is ok"""
         utils.logger.info("[WeiboClient.pong] Begin pong weibo...")
@@ -123,41 +139,69 @@ class WeiboClient:
             search_type: SearchType = SearchType.DEFAULT
     ) -> Dict:
         """
-        search note by keyword
+        search note by keyword (使用MCP方式)
         :param keyword: 微博搜搜的关键词
         :param page: 分页参数 -当前页码
         :param search_type: 搜索的类型，见 weibo/filed.py 中的枚举SearchType
         :return:
         """
-        uri = "/api/container/getIndex"
-        containerid = f"100103type={search_type.value}&q={keyword}"
+        # 使用MCP方式的简化请求
+        url = "https://m.weibo.cn/api/container/getIndex"
+        # 固定使用 type=1 (综合搜索)，这是MCP版本验证过的方式
+        containerid = f"100103type=1&q={keyword}"
         params = {
             "containerid": containerid,
             "page_type": "searchall",
             "page": page,
         }
-        return await self.get(uri, params)
+        
+        try:
+            result = await self.simple_get(url, params)
+            # 适配返回格式，保持与原有接口兼容
+            return result.get("data", {})
+        except Exception as e:
+            utils.logger.error(f"[WeiboClient.get_note_by_keyword] MCP方式搜索失败: {e}")
+            # 降级到原有方式
+            uri = "/api/container/getIndex"
+            containerid = f"100103type={search_type.value}&q={keyword}"
+            params = {
+                "containerid": containerid,
+                "page_type": "searchall",
+                "page": page,
+            }
+            return await self.get(uri, params)
 
     async def get_note_comments(self, mid_id: str, max_id: int, max_id_type: int = 0) -> Dict:
-        """get notes comments
+        """get notes comments (使用MCP方式)
         :param mid_id: 微博ID
         :param max_id: 分页参数ID
         :param max_id_type: 分页参数ID类型
         :return:
         """
-        uri = "/comments/hotflow"
-        params = {
-            "id": mid_id,
-            "mid": mid_id,
-            "max_id_type": max_id_type,
-        }
-        if max_id > 0:
-            params.update({"max_id": max_id})
-        referer_url = f"https://m.weibo.cn/detail/{mid_id}"
-        headers = copy.copy(self.headers)
-        headers["Referer"] = referer_url
+        # 使用MCP方式的评论URL格式
+        page = 1 if max_id <= 0 else max_id
+        url = f"https://m.weibo.cn/api/comments/show?id={mid_id}&page={page}"
+        
+        try:
+            result = await self.simple_get(url)
+            # 适配返回格式，保持与原有接口兼容
+            return result.get("data", {})
+        except Exception as e:
+            utils.logger.error(f"[WeiboClient.get_note_comments] MCP方式获取评论失败: {e}")
+            # 降级到原有方式
+            uri = "/comments/hotflow"
+            params = {
+                "id": mid_id,
+                "mid": mid_id,
+                "max_id_type": max_id_type,
+            }
+            if max_id > 0:
+                params.update({"max_id": max_id})
+            referer_url = f"https://m.weibo.cn/detail/{mid_id}"
+            headers = copy.copy(self.headers)
+            headers["Referer"] = referer_url
 
-        return await self.get(uri, params, headers=headers)
+            return await self.get(uri, params, headers=headers)
 
     async def get_note_all_comments(
         self,

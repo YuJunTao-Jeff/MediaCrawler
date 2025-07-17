@@ -201,7 +201,15 @@ class BilibiliClient(AbstractApiClient):
         return await self.get(uri, params, enable_params_sign=True)
 
     async def get_video_media(self, url: str) -> Union[bytes, None]:
-        async with httpx.AsyncClient(proxies=self.proxies) as client:
+        # 处理代理参数
+        proxy = None
+        if self.proxies:
+            if isinstance(self.proxies, dict):
+                proxy = list(self.proxies.values())[0] if self.proxies else None
+            else:
+                proxy = self.proxies
+        
+        async with httpx.AsyncClient(proxy=proxy) as client:
             response = await client.request("GET", url, timeout=self.timeout, headers=self.headers)
             if not response.reason_phrase == "OK":
                 utils.logger.error(f"[BilibiliClient.get_video_media] request {url} err, res:{response.text}")
