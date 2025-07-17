@@ -75,11 +75,11 @@ class BaiduTieBaClient(AbstractApiClient):
                 headers=self.headers, **kwargs
             )
 
-        if response.status_code == 403:
-            # 403 错误，直接抛出异常
-            utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
-            utils.logger.error(f"Request failed, response: {response.text}")
-            raise Exception(f"Access denied (403), IP可能被封禁，请尝试更换IP代理或账号, status code: {response.status_code}")
+        # if response.status_code == 403:
+        #     # 403 错误，直接抛出异常
+        #     utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
+        #     utils.logger.error(f"Request failed, response: {response.text}")
+        #     raise Exception(f"Access denied (403), IP可能被封禁，请尝试更换IP代理或账号, status code: {response.status_code}")
             
             # # 以下为自动验证相关代码，暂时注释掉，后续用IP池解决
             # # 403 通常是安全验证，记录返回体内容
@@ -98,7 +98,7 @@ class BaiduTieBaClient(AbstractApiClient):
             # else:
             #     # 其他类型的403错误
             #     raise Exception(f"Access denied, status code: {response.status_code}")
-        elif response.status_code != 200:
+        if response.status_code != 200:
             utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
             utils.logger.error(f"Request failed, response: {response.text}")
             raise Exception(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
