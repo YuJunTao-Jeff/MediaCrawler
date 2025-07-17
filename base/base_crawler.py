@@ -302,7 +302,10 @@ class AbstractCrawler(ABC):
         empty_page_count = 0
         
         page_limit = platform_config.get('page_limit', 20)
-        max_pages = (config.CRAWLER_MAX_NOTES_COUNT + page_limit - 1) // page_limit  # 向上取整
+        max_pages = min(
+            (config.CRAWLER_MAX_NOTES_COUNT + page_limit - 1) // page_limit,  # 基于内容数量的页数限制
+            getattr(config, 'PAGE_LIMIT', 20)  # 直接的页数限制
+        )
         
         while page <= max_pages:
             # 检查是否应该停止
