@@ -44,6 +44,7 @@ class BaiduTieBaClient(AbstractApiClient):
         self._host = "https://tieba.baidu.com"
         self._page_extractor = TieBaExtractor()
         self.default_ip_proxy = default_ip_proxy
+        self.last_verification_html = None  # 保存最后一次的安全验证HTML
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def request(self, method, url, return_ori_content=False, proxies=None, **kwargs) -> Union[str, Any]:
@@ -75,9 +76,22 @@ class BaiduTieBaClient(AbstractApiClient):
             )
 
         if response.status_code == 403:
-            # 403 通常是安全验证，抛出特殊异常让上层处理
+            # 403 通常是安全验证，记录返回体内容
             utils.logger.warning(f"Security verification detected, status code: {response.status_code}, url: {url}")
-            raise Exception("Security verification detected - need browser login")
+            utils.logger.info(f"Response content (first 500 chars): {response.text[:500]}")
+            
+            # 检查是否包含安全验证页面
+            if "百度安全验证" in response.text or "安全验证" in response.text:
+                utils.logger.info("检测到安全验证页面，需要在浏览器中完成验证")
+                # 保存HTML内容供后续使用
+                self.last_verification_html = response.text
+                # 返回验证页面内容而不是抛出异常
+                if return_ori_content:
+                    return response.text
+                return {"status_code": response.status_code, "content": response.text, "security_check": True}
+            else:
+                # 其他类型的403错误
+                raise Exception(f"Access denied, status code: {response.status_code}")
         elif response.status_code != 200:
             utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
             utils.logger.error(f"Request failed, response: {response.text}")
@@ -200,6 +214,12 @@ class BaiduTieBaClient(AbstractApiClient):
             "only_thread": note_type.value
         }
         page_content = await self.get(uri, params=params, return_ori_content=True)
+        
+        # 检查是否是安全验证页面
+        if isinstance(page_content, str) and "百度安全验证" in page_content:
+            utils.logger.warning("[BaiduTieBaClient.get_notes_by_keyword] 收到安全验证页面，需要用户在浏览器中完成验证")
+            raise Exception("Security verification page received - need browser verification")
+        
         return self._page_extractor.extract_search_note_list(page_content)
 
     async def get_note_by_id(self, note_id: str) -> TiebaNote:

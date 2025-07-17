@@ -147,11 +147,13 @@ class TieBaCrawler(AbstractCrawler):
                     except Exception as api_ex:
                         # 如果API请求失败，可能是遇到安全验证，使用浏览器导航
                         error_msg = str(api_ex)
-                        if ("Security verification detected" in error_msg or 
+                        if ("Security verification" in error_msg or 
+                            "browser verification" in error_msg or
                             "403" in error_msg or 
                             "IP已经被Block" in error_msg):
-                            utils.logger.info("[BaiduTieBaCrawler.search] 检测到安全验证，切换到浏览器模式进行登录")
-                            await self.handle_security_verification(keyword)
+                            utils.logger.info("[BaiduTieBaCrawler.search] 检测到安全验证，直接加载验证页面HTML")
+                            # 尝试获取最后一次请求的HTML内容
+                            await self.handle_security_verification_with_html(keyword, page)
                             break
                         else:
                             raise api_ex
@@ -453,6 +455,59 @@ class TieBaCrawler(AbstractCrawler):
             
         except Exception as e:
             utils.logger.error(f"[BaiduTieBaCrawler.handle_security_verification] Error: {e}")
+
+    async def handle_security_verification_with_url(self, url: str):
+        """处理安全验证，直接打开验证页面URL"""
+        try:
+            if not hasattr(self, 'browser_context') or not self.browser_context:
+                utils.logger.error("[BaiduTieBaCrawler.handle_security_verification_with_url] Browser context not available")
+                return
+                
+            # 创建新页面并直接导航到验证页面
+            page = await self.browser_context.new_page()
+            utils.logger.info(f"[BaiduTieBaCrawler.handle_security_verification_with_url] 正在打开验证页面: {url}")
+            await page.goto(url)
+            
+            # 等待页面加载
+            await page.wait_for_timeout(5000)
+            
+            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_url] 安全验证页面已打开，请在浏览器中完成验证")
+            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_url] 完成验证后，可以手动刷新页面或重新运行程序")
+            
+            # 保持页面打开供用户操作
+            await page.wait_for_timeout(30000)  # 等待30秒供用户处理验证
+            
+        except Exception as e:
+            utils.logger.error(f"[BaiduTieBaCrawler.handle_security_verification_with_url] Error: {e}")
+
+    async def handle_security_verification_with_html(self, keyword: str, page: int):
+        """直接加载安全验证HTML内容到浏览器"""
+        try:
+            if not hasattr(self, 'browser_context') or not self.browser_context:
+                utils.logger.error("[BaiduTieBaCrawler.handle_security_verification_with_html] Browser context not available")
+                return
+                
+            if not hasattr(self, 'tieba_client') or not self.tieba_client.last_verification_html:
+                utils.logger.warning("[BaiduTieBaCrawler.handle_security_verification_with_html] No verification HTML available, fallback to URL")
+                search_url = f"https://tieba.baidu.com/f/search/res?isnew=1&qw={keyword}&rn=10&pn={page}&sm=1&only_thread=0"
+                await self.handle_security_verification_with_url(search_url)
+                return
+                
+            # 创建新页面并直接设置HTML内容
+            page_obj = await self.browser_context.new_page()
+            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 正在加载安全验证页面HTML...")
+            
+            # 直接设置HTML内容
+            await page_obj.set_content(self.tieba_client.last_verification_html)
+            
+            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 安全验证页面已加载，请在浏览器中完成验证")
+            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 完成验证后，您可以重新运行程序")
+            
+            # 保持页面打开供用户操作
+            await page_obj.wait_for_timeout(30000)  # 等待30秒供用户处理验证
+            
+        except Exception as e:
+            utils.logger.error(f"[BaiduTieBaCrawler.handle_security_verification_with_html] Error: {e}")
 
     # 实现抽象方法
     def extract_item_id(self, content: dict) -> str:
