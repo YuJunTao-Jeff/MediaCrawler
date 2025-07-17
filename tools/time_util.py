@@ -84,31 +84,69 @@ def get_unix_timestamp():
 
 
 def rfc2822_to_china_datetime(rfc2822_time):
-    # 定义RFC 2822格式
-    rfc2822_format = "%a %b %d %H:%M:%S %z %Y"
+    try:
+        # 定义RFC 2822格式
+        rfc2822_format = "%a %b %d %H:%M:%S %z %Y"
 
-    # 将RFC 2822时间字符串转换为datetime对象
-    dt_object = datetime.strptime(rfc2822_time, rfc2822_format)
+        # 将RFC 2822时间字符串转换为datetime对象
+        dt_object = datetime.strptime(rfc2822_time, rfc2822_format)
 
-    # 将datetime对象的时区转换为中国时区
-    dt_object_china = dt_object.astimezone(timezone(timedelta(hours=8)))
-    return dt_object_china
+        # 将datetime对象的时区转换为中国时区
+        dt_object_china = dt_object.astimezone(timezone(timedelta(hours=8)))
+        return dt_object_china
+    except ValueError:
+        # 处理简短时间格式，如 '01-26'、'昨天'、'今天' 等
+        try:
+            # 如果是 MM-DD 格式
+            if len(rfc2822_time) == 5 and '-' in rfc2822_time:
+                current_year = datetime.now().year
+                month_day = rfc2822_time.split('-')
+                month = int(month_day[0])
+                day = int(month_day[1])
+                dt_object = datetime(current_year, month, day, 0, 0, 0)
+                # 转换为中国时区
+                dt_object_china = dt_object.replace(tzinfo=timezone(timedelta(hours=8)))
+                return dt_object_china
+            # 如果是其他格式，返回当前时间
+            else:
+                return datetime.now(timezone(timedelta(hours=8)))
+        except Exception:
+            # 解析失败，返回当前时间
+            return datetime.now(timezone(timedelta(hours=8)))
 
 
 def rfc2822_to_timestamp(rfc2822_time):
-    # 定义RFC 2822格式
-    rfc2822_format = "%a %b %d %H:%M:%S %z %Y"
+    try:
+        # 定义RFC 2822格式
+        rfc2822_format = "%a %b %d %H:%M:%S %z %Y"
 
-    # 将RFC 2822时间字符串转换为datetime对象
-    dt_object = datetime.strptime(rfc2822_time, rfc2822_format)
+        # 将RFC 2822时间字符串转换为datetime对象
+        dt_object = datetime.strptime(rfc2822_time, rfc2822_format)
 
-    # 将datetime对象转换为UTC时间
-    dt_utc = dt_object.replace(tzinfo=timezone.utc)
+        # 将datetime对象转换为UTC时间
+        dt_utc = dt_object.replace(tzinfo=timezone.utc)
 
-    # 计算UTC时间对应的Unix时间戳
-    timestamp = int(dt_utc.timestamp())
+        # 计算UTC时间对应的Unix时间戳
+        timestamp = int(dt_utc.timestamp())
 
-    return timestamp
+        return timestamp
+    except ValueError:
+        # 处理简短时间格式，如 '01-26'、'昨天'、'今天' 等
+        try:
+            # 如果是 MM-DD 格式
+            if len(rfc2822_time) == 5 and '-' in rfc2822_time:
+                current_year = datetime.now().year
+                month_day = rfc2822_time.split('-')
+                month = int(month_day[0])
+                day = int(month_day[1])
+                dt_object = datetime(current_year, month, day, 0, 0, 0)
+                return int(dt_object.timestamp())
+            # 如果是其他格式，返回当前时间戳
+            else:
+                return int(time.time())
+        except Exception:
+            # 解析失败，返回当前时间戳
+            return int(time.time())
 
 
 if __name__ == '__main__':

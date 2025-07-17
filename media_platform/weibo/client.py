@@ -179,7 +179,7 @@ class WeiboClient:
         :return:
         """
         # 使用MCP方式的评论URL格式
-        page = 1 if max_id <= 0 else max_id
+        page = 1 if max_id is None or max_id <= 0 else max_id
         url = f"https://m.weibo.cn/api/comments/show?id={mid_id}&page={page}"
         
         try:
@@ -195,7 +195,7 @@ class WeiboClient:
                 "mid": mid_id,
                 "max_id_type": max_id_type,
             }
-            if max_id > 0:
+            if max_id is not None and max_id > 0:
                 params.update({"max_id": max_id})
             referer_url = f"https://m.weibo.cn/detail/{mid_id}"
             headers = copy.copy(self.headers)
