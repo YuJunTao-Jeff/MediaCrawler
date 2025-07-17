@@ -18,8 +18,8 @@ from tools.utils import str2bool
 async def parse_cmd():
     # 读取command arg
     parser = argparse.ArgumentParser(description='Media crawler program.')
-    parser.add_argument('--platform', type=str, help='Media platform select (xhs | dy | ks | bili | wb | tieba | zhihu)',
-                        choices=["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"], default=config.PLATFORM)
+    parser.add_argument('--platform', type=str, help='Media platform select (xhs | dy | ks | bili | wb | tieba | zhihu | news)',
+                        choices=["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu", "news"], default=config.PLATFORM)
     parser.add_argument('--lt', type=str, help='Login type (qrcode | phone | cookie)',
                         choices=["qrcode", "phone", "cookie"], default=config.LOGIN_TYPE)
     parser.add_argument('--type', type=str, help='crawler type (search | detail | creator)',
@@ -40,6 +40,16 @@ async def parse_cmd():
                         help='whether to enable CDP mode, supported values case insensitive (\'yes\', \'true\', \'t\', \'y\', \'1\', \'no\', \'false\', \'f\', \'n\', \'0\')', default=config.ENABLE_CDP_MODE)
     parser.add_argument('--resume_crawl', type=str2bool,
                         help='whether to enable resume crawl mode, supported values case insensitive (\'yes\', \'true\', \'t\', \'y\', \'1\', \'no\', \'false\', \'f\', \'n\', \'0\')', default=config.ENABLE_RESUME_CRAWL)
+    
+    # 新闻平台特定参数
+    parser.add_argument('--tavily_api_key', type=str,
+                        help='Tavily search engine API key', default=config.TAVILY_API_KEY)
+    parser.add_argument('--tiangong_api_key', type=str,
+                        help='Tiangong search engine API key', default=config.TIANGONG_API_KEY)
+    parser.add_argument('--news_max_results', type=int,
+                        help='Maximum number of results per keyword for news search', default=config.NEWS_MAX_RESULTS_PER_KEYWORD)
+    parser.add_argument('--news_max_concurrent', type=int,
+                        help='Maximum concurrent extractions for news articles', default=config.NEWS_MAX_CONCURRENT_EXTRACTIONS)
 
     args = parser.parse_args()
 
@@ -55,3 +65,9 @@ async def parse_cmd():
     config.COOKIES = args.cookies
     config.ENABLE_CDP_MODE = args.cdp_mode
     config.ENABLE_RESUME_CRAWL = args.resume_crawl
+    
+    # 新闻平台参数重写
+    config.TAVILY_API_KEY = args.tavily_api_key
+    config.TIANGONG_API_KEY = args.tiangong_api_key
+    config.NEWS_MAX_RESULTS_PER_KEYWORD = args.news_max_results
+    config.NEWS_MAX_CONCURRENT_EXTRACTIONS = args.news_max_concurrent

@@ -281,3 +281,44 @@ TASK_TIMEOUT = 3600  # 1小时
 
 # 是否在启动时清理历史任务
 CLEANUP_HISTORY_TASKS = False
+
+# ==================== 新闻平台配置 ====================
+# Tavily搜索引擎API密钥
+TAVILY_API_KEY = ""
+
+# 天工搜索引擎API密钥
+TIANGONG_API_KEY = ""
+
+# 新闻搜索每个关键词的最大结果数
+NEWS_MAX_RESULTS_PER_KEYWORD = 10
+
+# 新闻内容提取的最大并发数
+NEWS_MAX_CONCURRENT_EXTRACTIONS = 5
+
+# 新闻文章内容最小长度（字符数）
+NEWS_MIN_CONTENT_LENGTH = 100
+
+# 新闻文章标题最大长度（字符数）
+NEWS_MAX_TITLE_LENGTH = 200
+
+# 是否启用新闻发布时间提取
+NEWS_ENABLE_PUBLISH_TIME = True
+
+# 是否启用新闻关键词提取
+NEWS_ENABLE_KEYWORD_EXTRACTION = True
+
+# 是否启用新闻摘要生成
+NEWS_ENABLE_SUMMARY_GENERATION = True
+
+# 新闻提取超时时间（秒）
+NEWS_EXTRACTION_TIMEOUT = 30
+
+# 新闻平台默认语言
+NEWS_DEFAULT_LANGUAGE = "zh"
+
+# 指定新闻平台需要爬取的URL列表
+NEWS_SPECIFIED_URL_LIST = [
+    # "https://example.com/news/article1",
+    # "https://example.com/news/article2",
+    # ........................
+]
