@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'libs'))
 
 from dataharvest.searcher import TavilySearcher
-from dataharvest.searcher.sky_searcher import TiangongSearcher
+from dataharvest.searcher.sky_searcher import SkySearcher
 from media_platform.news.extractor import NewsArticleExtractor
 from tools import utils
 import config
@@ -46,7 +46,7 @@ class NewsSearchClient:
         # 初始化天工搜索
         if hasattr(config, 'TIANGONG_API_KEY') and config.TIANGONG_API_KEY:
             try:
-                searchers['tiangong'] = TiangongSearcher(config.TIANGONG_API_KEY)
+                searchers['tiangong'] = SkySearcher(config.TIANGONG_API_KEY)
                 utils.logger.info("[NewsSearchClient] 天工搜索引擎初始化成功")
             except Exception as e:
                 utils.logger.error(f"[NewsSearchClient] 天工搜索引擎初始化失败: {e}")

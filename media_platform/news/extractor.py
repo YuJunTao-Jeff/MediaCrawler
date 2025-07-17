@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 # 添加dataharvest到路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'libs'))
 
-from dataharvest.base import DataHarvest
+# from dataharvest.base import DataHarvest
 from newspaper import Article
 from tools import utils
 
@@ -28,7 +28,8 @@ class NewsArticleExtractor:
     """新闻文章内容提取器"""
     
     def __init__(self):
-        self.harvester = DataHarvest()
+        # self.harvester = DataHarvest()
+        pass
     
     async def extract_article(self, url: str) -> Optional[Dict]:
         """
@@ -43,42 +44,38 @@ class NewsArticleExtractor:
         try:
             utils.logger.info(f"[NewsArticleExtractor] 开始提取文章: {url}")
             
-            # 1. 使用DataHarvest获取清洗后的内容
-            doc = await self.harvester.a_crawl_and_purify(url)
-            
-            # 2. 使用newspaper3k提取结构化信息
+            # 暂时只使用newspaper3k提取结构化信息
             article = Article(url, language='zh')
             article.download()
             article.parse()
             article.nlp()
             
-            # 3. 生成文章ID
+            # 生成文章ID
             article_id = hashlib.md5(url.encode()).hexdigest()
             
-            # 4. 解析URL获取域名信息
+            # 解析URL获取域名信息
             parsed_url = urlparse(url)
             source_domain = parsed_url.netloc
             source_site = self._get_site_name(source_domain)
             
-            # 5. 组装数据
+            # 组装数据
             result = {
                 'article_id': article_id,
                 'source_url': url,
-                'title': article.title or self._extract_title_from_content(doc.page_content),
-                'content': doc.page_content,
+                'title': article.title or '未知标题',
+                'content': article.text,
                 'summary': article.summary,
                 'keywords': article.keywords,
                 'authors': article.authors,
-                'publish_date': article.publish_date,  # 直接使用newspaper3k结果
+                'publish_date': article.publish_date,
                 'source_domain': source_domain,
                 'source_site': source_site,
                 'top_image': article.top_image,
-                'word_count': len(doc.page_content) if doc.page_content else 0,
+                'word_count': len(article.text) if article.text else 0,
                 'language': 'zh',
                 'metadata': {
-                    'extraction_method': 'dataharvest+newspaper3k',
+                    'extraction_method': 'newspaper3k',
                     'extraction_time': datetime.now().isoformat(),
-                    **doc.metadata
                 }
             }
             

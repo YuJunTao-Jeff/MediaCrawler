@@ -32,7 +32,7 @@ class AsyncWordCloudGenerator:
         self.stop_words = self.load_stop_words()
         self.custom_words = config.CUSTOM_WORDS
         for word, group in self.custom_words.items():
-            jieba.add_word(word)
+            jieba.add_word(word, freq=1000)
 
     def load_stop_words(self):
         with open(self.stop_words_file, 'r', encoding='utf-8') as f:
