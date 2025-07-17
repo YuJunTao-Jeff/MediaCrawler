@@ -49,25 +49,22 @@ class NewsStoreImpl:
             # 执行SQL
             await self.mysql_db_var.get().execute(
                 NewsStoreSql.UPSERT_NEWS_ARTICLE,
-                (
-                    article_data.get('article_id'),
-                    article_data.get('source_url'),
-                    article_data.get('title'),
-                    article_data.get('content'),
-                    article_data.get('summary'),
-                    keywords_json,
-                    authors_json,
-                    publish_date,
-                    article_data.get('source_domain'),
-                    article_data.get('source_site'),
-                    article_data.get('top_image'),
-                    article_data.get('word_count'),
-                    article_data.get('language', 'zh'),
-                    metadata_json,
-                    current_ts,
-                    current_ts,
-                    current_ts  # for ON DUPLICATE KEY UPDATE
-                )
+                article_data.get('article_id') or '',
+                article_data.get('source_url') or '',
+                article_data.get('title') or '未知标题',
+                article_data.get('content') or '',
+                article_data.get('summary') or '',
+                keywords_json or '[]',
+                authors_json or '[]',
+                publish_date,
+                article_data.get('source_domain') or '',
+                article_data.get('source_site') or '',
+                article_data.get('top_image') or '',
+                article_data.get('word_count') or 0,
+                article_data.get('language', 'zh'),
+                metadata_json or '{}',
+                current_ts,
+                current_ts
             )
             
             # 如果有搜索信息，同时保存搜索结果
@@ -92,17 +89,15 @@ class NewsStoreImpl:
             
             await self.mysql_db_var.get().execute(
                 NewsStoreSql.INSERT_SEARCH_RESULT,
-                (
-                    article_data.get('search_keyword'),
-                    article_data.get('search_engine'),
-                    article_data.get('search_title', article_data.get('title')),
-                    article_data.get('source_url'),
-                    article_data.get('search_score'),
-                    article_data.get('search_description'),
-                    article_data.get('article_id'),
-                    current_ts,
-                    current_ts
-                )
+                article_data.get('search_keyword') or '',
+                article_data.get('search_engine') or '',
+                article_data.get('search_title', article_data.get('title')) or '未知标题',
+                article_data.get('source_url') or '',
+                article_data.get('search_score') or 0.0,
+                article_data.get('search_description') or '',
+                article_data.get('article_id') or '',
+                current_ts,
+                current_ts
             )
             
         except Exception as e:
@@ -123,7 +118,7 @@ class NewsStoreImpl:
         try:
             results = await self.mysql_db_var.get().query(
                 NewsStoreSql.SELECT_ARTICLES_BY_KEYWORD,
-                (keyword, limit)
+                keyword, limit
             )
             
             articles = []
@@ -151,7 +146,7 @@ class NewsStoreImpl:
         try:
             results = await self.mysql_db_var.get().query(
                 NewsStoreSql.SELECT_ARTICLE_BY_ID,
-                (article_id,)
+                article_id
             )
             
             if results:
@@ -192,7 +187,7 @@ class NewsStoreImpl:
         try:
             results = await self.mysql_db_var.get().query(
                 NewsStoreSql.SELECT_LATEST_ARTICLES,
-                (limit,)
+                limit
             )
             
             articles = []
@@ -219,14 +214,14 @@ class NewsStoreImpl:
         """
         try:
             # 解析JSON字段
-            keywords = json.loads(row.get('keywords')) if row.get('keywords') else None
-            authors = json.loads(row.get('authors')) if row.get('authors') else None
-            metadata = json.loads(row.get('metadata')) if row.get('metadata') else None
+            keywords = json.loads(row.get('keywords', '[]')) if row.get('keywords') else []
+            authors = json.loads(row.get('authors', '[]')) if row.get('authors') else []
+            metadata = json.loads(row.get('metadata', '{}')) if row.get('metadata') else {}
             
             article = NewsArticle(
-                article_id=row.get('article_id'),
-                source_url=row.get('source_url'),
-                title=row.get('title'),
+                article_id=row.get('article_id', ''),
+                source_url=row.get('source_url', ''),
+                title=row.get('title', '未知标题'),
                 content=row.get('content'),
                 summary=row.get('summary'),
                 keywords=keywords,

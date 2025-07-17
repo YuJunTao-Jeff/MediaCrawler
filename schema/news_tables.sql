@@ -1,7 +1,6 @@
 -- ----------------------------
 -- Table structure for news_search_result
 -- ----------------------------
-DROP TABLE IF EXISTS `news_search_result`;
 CREATE TABLE `news_search_result`
 (
     `id`                  int          NOT NULL AUTO_INCREMENT COMMENT '自增ID',
@@ -24,7 +23,6 @@ CREATE TABLE `news_search_result`
 -- ----------------------------
 -- Table structure for news_article
 -- ----------------------------
-DROP TABLE IF EXISTS `news_article`;
 CREATE TABLE `news_article`
 (
     `id`                  int          NOT NULL AUTO_INCREMENT COMMENT '自增ID',
@@ -55,7 +53,6 @@ CREATE TABLE `news_article`
 -- ----------------------------
 -- Table structure for news_search_task
 -- ----------------------------
-DROP TABLE IF EXISTS `news_search_task`;
 CREATE TABLE `news_search_task`
 (
     `id`                  int          NOT NULL AUTO_INCREMENT COMMENT '自增ID',

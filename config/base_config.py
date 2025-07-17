@@ -284,7 +284,7 @@ CLEANUP_HISTORY_TASKS = False
 
 # ==================== 新闻平台配置 ====================
 # Tavily搜索引擎API密钥
-TAVILY_API_KEY = ""
+TAVILY_API_KEY = "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"
 
 # 天工搜索引擎API密钥
 TIANGONG_API_KEY = ""

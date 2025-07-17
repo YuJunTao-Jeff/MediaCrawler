@@ -20,20 +20,20 @@ class NewsStoreSql:
             language, metadata, add_ts, last_modify_ts
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-        ) ON DUPLICATE KEY UPDATE
-            title = VALUES(title),
-            content = VALUES(content),
-            summary = VALUES(summary),
-            keywords = VALUES(keywords),
-            authors = VALUES(authors),
-            publish_date = VALUES(publish_date),
-            source_domain = VALUES(source_domain),
-            source_site = VALUES(source_site),
-            top_image = VALUES(top_image),
-            word_count = VALUES(word_count),
-            language = VALUES(language),
-            metadata = VALUES(metadata),
-            last_modify_ts = VALUES(last_modify_ts)
+        ) AS new_values ON DUPLICATE KEY UPDATE
+            title = new_values.title,
+            content = new_values.content,
+            summary = new_values.summary,
+            keywords = new_values.keywords,
+            authors = new_values.authors,
+            publish_date = new_values.publish_date,
+            source_domain = new_values.source_domain,
+            source_site = new_values.source_site,
+            top_image = new_values.top_image,
+            word_count = new_values.word_count,
+            language = new_values.language,
+            metadata = new_values.metadata,
+            last_modify_ts = new_values.last_modify_ts
     """
     
     # 插入搜索结果
