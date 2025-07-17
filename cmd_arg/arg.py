@@ -38,6 +38,8 @@ async def parse_cmd():
                         help='cookies used for cookie login type', default=config.COOKIES)
     parser.add_argument('--cdp_mode', type=str2bool,
                         help='whether to enable CDP mode, supported values case insensitive (\'yes\', \'true\', \'t\', \'y\', \'1\', \'no\', \'false\', \'f\', \'n\', \'0\')', default=config.ENABLE_CDP_MODE)
+    parser.add_argument('--resume_crawl', type=str2bool,
+                        help='whether to enable resume crawl mode, supported values case insensitive (\'yes\', \'true\', \'t\', \'y\', \'1\', \'no\', \'false\', \'f\', \'n\', \'0\')', default=config.ENABLE_RESUME_CRAWL)
 
     args = parser.parse_args()
 
@@ -52,3 +54,4 @@ async def parse_cmd():
     config.SAVE_DATA_OPTION = args.save_data_option
     config.COOKIES = args.cookies
     config.ENABLE_CDP_MODE = args.cdp_mode
+    config.ENABLE_RESUME_CRAWL = args.resume_crawl

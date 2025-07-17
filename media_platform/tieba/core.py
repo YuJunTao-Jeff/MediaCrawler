@@ -85,10 +85,17 @@ class TieBaCrawler(AbstractCrawler):
                     default_ip_proxy=httpx_proxy_format,
                 )
                 
+                # 初始化断点续爬
+                if config.ENABLE_RESUME_CRAWL:
+                    await self.init_resume_crawl(platform="tieba")
+                
                 crawler_type_var.set(config.CRAWLER_TYPE)
                 if config.CRAWLER_TYPE == "search":
                     # Search for notes and retrieve their comment information.
-                    await self.search()
+                    if config.ENABLE_RESUME_CRAWL:
+                        await self.search_with_resume()
+                    else:
+                        await self.search()
                     await self.get_specified_tieba_notes()
                 elif config.CRAWLER_TYPE == "detail":
                     # Get the information and comments of the specified post
@@ -102,6 +109,8 @@ class TieBaCrawler(AbstractCrawler):
             utils.logger.error(f"[BaiduTieBaCrawler.start] Error: {e}")
             raise e
         finally:
+            if config.ENABLE_RESUME_CRAWL:
+                await self.cleanup_crawl_progress()
             await self.close()
 
         utils.logger.info("[BaiduTieBaCrawler.start] Tieba Crawler finished ...")
@@ -798,11 +807,13 @@ class TieBaCrawler(AbstractCrawler):
         """从内容中提取时间戳"""
         return content.get("publish_time", 0)
 
-    async def get_page_content(self, page_num: int) -> List[dict]:
+    async def get_page_content(self, keyword: str, page: int) -> List[dict]:
         """获取指定页面的内容"""
         # 这里需要根据实际需求实现
         return []
 
     async def store_content(self, content: dict) -> None:
         """存储内容到数据库"""
-        await tieba_store.update_tieba_note(content)
+        # 将字典转换为 TiebaNote 对象
+        note_item = TiebaNote(**content)
+        await tieba_store.update_tieba_note(note_item)
