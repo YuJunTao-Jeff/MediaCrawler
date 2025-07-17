@@ -78,7 +78,7 @@ class BaiduTieBaClient(AbstractApiClient):
         if response.status_code == 403:
             # 403 通常是安全验证，记录返回体内容
             utils.logger.warning(f"Security verification detected, status code: {response.status_code}, url: {url}")
-            utils.logger.info(f"Response content (first 500 chars): {response.text[:500]}")
+            # utils.logger.info(f"Complete HTML response content:\n{response.text}")  # 暂时注释掉，避免日志过长
             
             # 检查是否包含安全验证页面
             if "百度安全验证" in response.text or "安全验证" in response.text:

@@ -151,10 +151,21 @@ class TieBaCrawler(AbstractCrawler):
                             "browser verification" in error_msg or
                             "403" in error_msg or 
                             "IP已经被Block" in error_msg):
-                            utils.logger.info("[BaiduTieBaCrawler.search] 检测到安全验证，直接加载验证页面HTML")
-                            # 尝试获取最后一次请求的HTML内容
-                            await self.handle_security_verification_with_html(keyword, page)
-                            break
+                            utils.logger.info("[BaiduTieBaCrawler.search] 检测到安全验证，尝试自动化处理")
+                            
+                            # 尝试自动化处理验证
+                            auto_result = await self.handle_security_verification_with_html(keyword, page)
+                            
+                            if auto_result and len(auto_result) > 0:
+                                # 自动验证成功，处理搜索结果
+                                utils.logger.info(f"[BaiduTieBaCrawler.search] 自动验证成功，获得 {len(auto_result)} 个结果")
+                                await self.get_specified_notes(note_id_list=[note_detail.note_id for note_detail in auto_result])
+                                page += 1
+                                continue  # 继续下一页搜索
+                            else:
+                                # 自动验证失败，中断搜索
+                                utils.logger.info("[BaiduTieBaCrawler.search] 自动验证失败，停止搜索")
+                                break
                         else:
                             raise api_ex
                             
@@ -232,7 +243,7 @@ class TieBaCrawler(AbstractCrawler):
                     return None
                 return note_detail
             except Exception as ex:
-                utils.logger.error(f"[BaiduTieBaCrawler.get_note_detail] Get note detail error: {ex}")
+                utils.logger.error(f"[BaiduTieBaCrawler.get_note_detail] Get note detail error: {ex}", exc_info=True)
                 return None
             except KeyError as ex:
                 utils.logger.error(
@@ -481,7 +492,7 @@ class TieBaCrawler(AbstractCrawler):
             utils.logger.error(f"[BaiduTieBaCrawler.handle_security_verification_with_url] Error: {e}")
 
     async def handle_security_verification_with_html(self, keyword: str, page: int):
-        """直接加载安全验证HTML内容到浏览器"""
+        """直接加载安全验证HTML内容到浏览器，并尝试自动化处理"""
         try:
             if not hasattr(self, 'browser_context') or not self.browser_context:
                 utils.logger.error("[BaiduTieBaCrawler.handle_security_verification_with_html] Browser context not available")
@@ -500,14 +511,283 @@ class TieBaCrawler(AbstractCrawler):
             # 直接设置HTML内容
             await page_obj.set_content(self.tieba_client.last_verification_html)
             
-            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 安全验证页面已加载，请在浏览器中完成验证")
-            utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 完成验证后，您可以重新运行程序")
+            # 尝试自动化处理验证
+            verification_result = await self.auto_handle_verification(page_obj, keyword, page)
             
-            # 保持页面打开供用户操作
-            await page_obj.wait_for_timeout(30000)  # 等待30秒供用户处理验证
+            if verification_result:
+                utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 自动验证成功，继续搜索流程")
+                return verification_result
+            else:
+                utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 自动验证失败，需要手动处理")
+                utils.logger.info("[BaiduTieBaCrawler.handle_security_verification_with_html] 请在浏览器中完成验证")
+                # 保持页面打开供用户操作
+                await page_obj.wait_for_timeout(30000)
             
         except Exception as e:
             utils.logger.error(f"[BaiduTieBaCrawler.handle_security_verification_with_html] Error: {e}")
+
+    async def auto_handle_verification(self, page_obj, keyword: str, page_num: int):
+        """自动化处理安全验证"""
+        try:
+            utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 开始自动化验证处理...")
+            
+            # 检查页面是否还可用
+            try:
+                await page_obj.evaluate("document.readyState")
+            except Exception as e:
+                utils.logger.error(f"[BaiduTieBaCrawler.auto_handle_verification] 页面已关闭: {e}")
+                return None
+            
+            # 等待验证页面完全加载，包括动态脚本
+            utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 等待验证页面动态内容加载...")
+            try:
+                await page_obj.wait_for_timeout(8000)  # 增加等待时间
+            except Exception as e:
+                utils.logger.error(f"[BaiduTieBaCrawler.auto_handle_verification] 等待超时: {e}")
+                return None
+            
+            # 等待页面内容完全渲染
+            try:
+                await page_obj.wait_for_function("document.readyState === 'complete'", timeout=5000)
+            except Exception as e:
+                utils.logger.warning(f"[BaiduTieBaCrawler.auto_handle_verification] 等待页面完成失败: {e}")
+            
+            # 调试：输出当前页面内容
+            current_content = await page_obj.content()
+            utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 当前页面长度: {len(current_content)}")
+            
+            # 尝试查找所有可点击元素，包括div按钮
+            try:
+                clickable_selectors = [
+                    "button", "input[type='button']", "input[type='submit']",
+                    "[role='button']", ".btn", "[onclick]",
+                    # 百度BIOC特定元素
+                    ".bioc_disaster_proven_tip_text", "span.bioc_disaster_proven_tip_text",
+                    "[class*='bioc']", ".bioc-btn", ".bioc_btn",
+                    # 专门针对div按钮的选择器
+                    "div[onclick]", "div[role='button']", "div.btn", "div.button",
+                    "div[data-action]", "div[data-click]", "div[data-testid]",
+                    # 专门针对span按钮的选择器
+                    "span[onclick]", "span[role='button']", "span.btn", "span.button",
+                    "span[data-action]", "span[data-click]", "span[data-testid]",
+                    # 百度特定的元素
+                    "div[data-module]", "div.verify", "div.confirm", "div.check",
+                    "span.verify", "span.confirm", "span.check",
+                    # CSS样式指示的可点击元素
+                    "div[style*='cursor: pointer']", "div[style*='cursor:pointer']",
+                    "span[style*='cursor: pointer']", "span[style*='cursor:pointer']"
+                ]
+                
+                all_buttons = []
+                for selector in clickable_selectors:
+                    elements = await page_obj.query_selector_all(selector)
+                    all_buttons.extend(elements)
+                
+                # 去重
+                unique_buttons = []
+                seen_elements = set()
+                for btn in all_buttons:
+                    btn_handle = await btn.evaluate("el => el")
+                    if btn_handle not in seen_elements:
+                        unique_buttons.append(btn)
+                        seen_elements.add(btn_handle)
+                
+                all_buttons = unique_buttons
+                utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 找到 {len(all_buttons)} 个可能的可点击元素")
+                
+                # 检查是否有iframe
+                iframes = await page_obj.query_selector_all("iframe")
+                utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 找到 {len(iframes)} 个iframe")
+                
+                # 详细分析每个元素，特别关注div按钮
+                for i, btn in enumerate(all_buttons[:10]):  # 检查更多元素
+                    try:
+                        text = await btn.text_content()
+                        tag = await btn.evaluate("el => el.tagName")
+                        class_name = await btn.get_attribute("class") or ""
+                        onclick = await btn.get_attribute("onclick") or ""
+                        role = await btn.get_attribute("role") or ""
+                        data_action = await btn.get_attribute("data-action") or ""
+                        cursor_style = await btn.evaluate("el => getComputedStyle(el).cursor")
+                        
+                        # 检查是否是可点击的div
+                        is_clickable = (
+                            onclick or 
+                            role == "button" or 
+                            "btn" in class_name.lower() or
+                            "button" in class_name.lower() or
+                            "click" in class_name.lower() or
+                            "verify" in class_name.lower() or
+                            "confirm" in class_name.lower() or
+                            cursor_style == "pointer" or
+                            data_action
+                        )
+                        
+                        utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 元素{i+1}: {tag}, class='{class_name}', text='{text[:20]}', 可点击={is_clickable}")
+                        if onclick:
+                            utils.logger.info(f"  └─ onclick: {onclick[:50]}")
+                        if cursor_style == "pointer":
+                            utils.logger.info(f"  └─ cursor: {cursor_style}")
+                            
+                    except Exception as e:
+                        utils.logger.warning(f"[BaiduTieBaCrawler.auto_handle_verification] 分析元素{i+1}失败: {e}")
+                        
+                # 如果没找到按钮但有iframe，尝试在iframe中查找
+                if len(all_buttons) == 0 and len(iframes) > 0:
+                    utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 尝试在iframe中查找验证元素")
+                    for i, iframe in enumerate(iframes):
+                        try:
+                            iframe_content = await iframe.content_frame()
+                            if iframe_content:
+                                iframe_buttons = await iframe_content.query_selector_all("button, input[type='button'], [role='button'], .btn")
+                                utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] iframe{i+1}中找到 {len(iframe_buttons)} 个按钮")
+                        except Exception as iframe_e:
+                            utils.logger.warning(f"[BaiduTieBaCrawler.auto_handle_verification] 检查iframe{i+1}失败: {iframe_e}")
+                            
+            except Exception as e:
+                utils.logger.warning(f"[BaiduTieBaCrawler.auto_handle_verification] 查找按钮失败: {e}")
+                
+            # 由于这是一个特殊的百度验证页面，尝试等待自动重定向
+            utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 这是百度BIOC验证页面，等待自动处理或重定向")
+            
+            # 等待可能的重定向或验证完成
+            try:
+                # 监听页面URL变化，等待跳转到搜索结果页面
+                for wait_round in range(6):  # 最多等待30秒
+                    await page_obj.wait_for_timeout(5000)  # 每轮等待5秒
+                    current_url = page_obj.url
+                    utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 等待第{wait_round+1}轮，当前URL: {current_url}")
+                    
+                    # 检查是否已经跳转
+                    if "search/res" in current_url and "qw=" in current_url:
+                        utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 检测到自动跳转到搜索页面")
+                        content = await page_obj.content()
+                        return self._page_extractor.extract_search_note_list(content)
+                    
+                    # 检查页面内容是否发生变化
+                    new_content = await page_obj.content()
+                    if len(new_content) != len(current_content):
+                        utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 页面内容发生变化: {len(current_content)} -> {len(new_content)}")
+                        current_content = new_content
+                        
+                        # 重新检查是否有可点击元素出现
+                        new_buttons = await page_obj.query_selector_all("button, input[type='button'], [role='button'], .btn, [onclick], div[onclick]")
+                        if len(new_buttons) > 0:
+                            utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 发现新的可点击元素: {len(new_buttons)} 个")
+                            all_buttons = new_buttons
+                            break
+                            
+            except Exception as wait_e:
+                utils.logger.warning(f"[BaiduTieBaCrawler.auto_handle_verification] 等待验证处理失败: {wait_e}")
+            
+            # 专门针对百度BIOC验证的选择器
+            verification_selectors = [
+                # 优先级1: 百度BIOC特定元素（最高优先级）
+                '.bioc_disaster_proven_tip_text',
+                'span.bioc_disaster_proven_tip_text',
+                '.bioc_disaster_proven_tip_text:contains("点击按钮开始验证")',
+                'span:contains("点击按钮开始验证")',
+                '.bioc-disaster-proven-tip-text',
+                
+                # 优先级2: 百度验证相关
+                '.bioc-btn',
+                '.bioc_btn', 
+                '[class*="bioc"]',
+                'div[data-module="security"]',
+                'div[data-action="verify"]', 
+                'div[data-action="confirm"]',
+                'div.security-check-btn',
+                'div.verify-button',
+                'div.verify-btn',
+                'div.confirm-btn',
+                'div.captcha-button',
+                'div.verification-button',
+                
+                # 优先级3: 包含验证文本的元素
+                '*:contains("点击按钮开始验证")',
+                '*:contains("点击验证")',
+                '*:contains("开始验证")',
+                'div:contains("确认")',
+                'div:contains("验证")',
+                'span:contains("验证")',
+                'div:contains("继续访问")',
+                'div:contains("点击完成验证")',
+                'div:contains("立即验证")',
+                
+                # 优先级4: 传统按钮元素
+                'button[data-name="confirm"]',
+                'button:contains("确认")',
+                'button:contains("验证")',
+                'input[type="submit"]',
+                'button[type="submit"]',
+                
+                # 优先级5: 通用可点击元素
+                '[role="button"]',
+                '.btn',
+                'button',
+                
+                # 优先级6: 任何带onclick的元素（最后尝试）
+                'div[onclick]',
+                'span[onclick]',
+            ]
+            
+            for selector in verification_selectors:
+                try:
+                    # 等待元素出现
+                    element = await page_obj.wait_for_selector(selector, timeout=2000)
+                    if element:
+                        utils.logger.info(f"[BaiduTieBaCrawler.auto_handle_verification] 找到验证元素: {selector}")
+                        
+                        # 点击验证元素
+                        await element.click()
+                        utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 已点击验证元素")
+                        
+                        # 等待验证处理
+                        await page_obj.wait_for_timeout(2000)
+                        
+                        # 检查是否跳转到搜索结果页面
+                        current_url = page_obj.url
+                        if "search/res" in current_url and "qw=" in current_url:
+                            utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 验证成功，已跳转到搜索结果页面")
+                            
+                            # 直接从当前页面提取搜索结果
+                            content = await page_obj.content()
+                            return self._page_extractor.extract_search_note_list(content)
+                        
+                        break
+                        
+                except Exception as e:
+                    # 这个选择器没找到，尝试下一个
+                    continue
+            
+            # 如果没有自动跳转，尝试等待跳转
+            try:
+                utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 等待页面跳转...")
+                await page_obj.wait_for_url("**/search/res**", timeout=5000)
+                content = await page_obj.content()
+                return self._page_extractor.extract_search_note_list(content)
+            except:
+                pass
+                
+            # 自动验证失败，尝试重新发起API请求
+            utils.logger.info("[BaiduTieBaCrawler.auto_handle_verification] 自动验证可能成功，尝试重新发起API请求")
+            await page_obj.wait_for_timeout(3000)  # 等待验证完成
+            
+            try:
+                return await self.tieba_client.get_notes_by_keyword(
+                    keyword=keyword,
+                    page=page_num,
+                    page_size=10,
+                    sort=SearchSortType.TIME_DESC,
+                    note_type=SearchNoteType.FIXED_THREAD
+                )
+            except Exception as retry_ex:
+                utils.logger.warning(f"[BaiduTieBaCrawler.auto_handle_verification] API重试也失败: {retry_ex}")
+                return None
+                
+        except Exception as e:
+            utils.logger.error(f"[BaiduTieBaCrawler.auto_handle_verification] 自动验证处理失败: {e}")
+            return None
 
     # 实现抽象方法
     def extract_item_id(self, content: dict) -> str:
