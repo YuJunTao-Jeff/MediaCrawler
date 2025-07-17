@@ -44,7 +44,7 @@ class BaiduTieBaClient(AbstractApiClient):
         self._host = "https://tieba.baidu.com"
         self._page_extractor = TieBaExtractor()
         self.default_ip_proxy = default_ip_proxy
-        self.last_verification_html = None  # 保存最后一次的安全验证HTML
+        # self.last_verification_html = None  # 保存最后一次的安全验证HTML - 暂时注释掉
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     async def request(self, method, url, return_ori_content=False, proxies=None, **kwargs) -> Union[str, Any]:
@@ -76,22 +76,28 @@ class BaiduTieBaClient(AbstractApiClient):
             )
 
         if response.status_code == 403:
-            # 403 通常是安全验证，记录返回体内容
-            utils.logger.warning(f"Security verification detected, status code: {response.status_code}, url: {url}")
-            # utils.logger.info(f"Complete HTML response content:\n{response.text}")  # 暂时注释掉，避免日志过长
+            # 403 错误，直接抛出异常
+            utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
+            utils.logger.error(f"Request failed, response: {response.text}")
+            raise Exception(f"Access denied (403), IP可能被封禁，请尝试更换IP代理或账号, status code: {response.status_code}")
             
-            # 检查是否包含安全验证页面
-            if "百度安全验证" in response.text or "安全验证" in response.text:
-                utils.logger.info("检测到安全验证页面，需要在浏览器中完成验证")
-                # 保存HTML内容供后续使用
-                self.last_verification_html = response.text
-                # 返回验证页面内容而不是抛出异常
-                if return_ori_content:
-                    return response.text
-                return {"status_code": response.status_code, "content": response.text, "security_check": True}
-            else:
-                # 其他类型的403错误
-                raise Exception(f"Access denied, status code: {response.status_code}")
+            # # 以下为自动验证相关代码，暂时注释掉，后续用IP池解决
+            # # 403 通常是安全验证，记录返回体内容
+            # utils.logger.warning(f"Security verification detected, status code: {response.status_code}, url: {url}")
+            # # utils.logger.info(f"Complete HTML response content:\n{response.text}")  # 暂时注释掉，避免日志过长
+            # 
+            # # 检查是否包含安全验证页面
+            # if "百度安全验证" in response.text or "安全验证" in response.text:
+            #     utils.logger.info("检测到安全验证页面，需要在浏览器中完成验证")
+            #     # 保存HTML内容供后续使用
+            #     self.last_verification_html = response.text
+            #     # 返回验证页面内容而不是抛出异常
+            #     if return_ori_content:
+            #         return response.text
+            #     return {"status_code": response.status_code, "content": response.text, "security_check": True}
+            # else:
+            #     # 其他类型的403错误
+            #     raise Exception(f"Access denied, status code: {response.status_code}")
         elif response.status_code != 200:
             utils.logger.error(f"Request failed, method: {method}, url: {url}, status code: {response.status_code}")
             utils.logger.error(f"Request failed, response: {response.text}")
