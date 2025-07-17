@@ -74,7 +74,7 @@ class NewsSearchClient:
                 utils.logger.info(f"[NewsSearchClient] 使用{engine_name}搜索: {keyword}")
                 
                 # 1. 搜索获取结果列表
-                max_results = getattr(config, 'NEWS_MAX_RESULTS_PER_KEYWORD', 10)
+                max_results = getattr(config, 'NEWS_MAX_RESULTS_PER_KEYWORD', 100)
                 search_result = searcher.search(keyword, max_results=max_results)
                 
                 utils.logger.info(f"[NewsSearchClient] {engine_name}搜索到 {len(search_result.items)} 个结果")
