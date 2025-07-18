@@ -67,14 +67,23 @@ class XHSSimulationCrawler(AbstractCrawler):
             playwright_proxy_format, httpx_proxy_format = self.format_proxy_info(ip_proxy_info)
             
         async with async_playwright() as playwright:
-            # 启动浏览器
-            chromium = playwright.chromium
-            self.browser_context = await self.launch_browser(
-                chromium,
-                playwright_proxy_format,
-                self.user_agent,
-                headless=config.HEADLESS
-            )
+            # 根据配置选择启动模式
+            if config.ENABLE_CDP_MODE:
+                utils.logger.info("[XHSSimulationCrawler] 使用CDP模式启动浏览器")
+                self.browser_context = await self.launch_browser_with_cdp(
+                    playwright, playwright_proxy_format, self.user_agent,
+                    headless=getattr(config, 'CDP_HEADLESS', config.HEADLESS)
+                )
+            else:
+                utils.logger.info("[XHSSimulationCrawler] 使用标准模式启动浏览器")
+                # 启动浏览器
+                chromium = playwright.chromium
+                self.browser_context = await self.launch_browser(
+                    chromium,
+                    playwright_proxy_format,
+                    self.user_agent,
+                    headless=config.HEADLESS
+                )
             
             # 创建页面
             self.context_page = await self.browser_context.new_page()
@@ -321,8 +330,9 @@ class XHSSimulationCrawler(AbstractCrawler):
         utils.logger.info("[XHSSimulationCrawler] 启动浏览器")
         
         if config.ENABLE_CDP_MODE:
-            # CDP模式
-            return await self._launch_cdp_browser(chromium, playwright_proxy, user_agent, headless)
+            # CDP模式 - 使用专门的方法
+            utils.logger.warning("[XHSSimulationCrawler] CDP模式需要特殊启动流程，使用普通模式")
+            return await self._launch_normal_browser(chromium, playwright_proxy, user_agent, headless)
         else:
             # 普通模式
             return await self._launch_normal_browser(chromium, playwright_proxy, user_agent, headless)
@@ -373,23 +383,68 @@ class XHSSimulationCrawler(AbstractCrawler):
                                 user_agent: Optional[str],
                                 headless: bool = True) -> BrowserContext:
         """启动CDP浏览器"""
-        # CDP模式实现
-        # 这里可以集成现有的CDPBrowserManager
-        utils.logger.warning("[XHSSimulationCrawler] CDP模式暂未实现，使用普通模式")
-        return await self._launch_normal_browser(chromium, playwright_proxy, user_agent, headless)
+        utils.logger.info("[XHSSimulationCrawler] 使用CDP模式启动浏览器")
+        
+        try:
+            self.cdp_manager = CDPBrowserManager()
+            
+            # 注意：需要获取当前的playwright实例，而不是重新创建
+            # 这里我们需要从上层传入playwright实例
+            # 暂时先修改为使用基类的实现方式
+            
+            # CDP管理器需要playwright实例，但这里没有直接获取的方式
+            # 所以我们采用回退策略
+            utils.logger.warning("[XHSSimulationCrawler] CDP模式需要从上层传入playwright实例")
+            utils.logger.info("[XHSSimulationCrawler] 回退到普通模式")
+            return await self._launch_normal_browser(chromium, playwright_proxy, user_agent, headless)
+            
+        except Exception as e:
+            utils.logger.error(f"[XHSSimulationCrawler] CDP模式启动失败: {e}")
+            utils.logger.info("[XHSSimulationCrawler] 回退到普通模式")
+            return await self._launch_normal_browser(chromium, playwright_proxy, user_agent, headless)
+    
+    async def launch_browser_with_cdp(self, playwright: Playwright, playwright_proxy: Optional[Dict],
+                                     user_agent: Optional[str], headless: bool = True) -> BrowserContext:
+        """
+        使用CDP模式启动浏览器
+        """
+        try:
+            self.cdp_manager = CDPBrowserManager()
+            browser_context = await self.cdp_manager.launch_and_connect(
+                playwright=playwright,
+                playwright_proxy=playwright_proxy,
+                user_agent=user_agent,
+                headless=headless
+            )
+
+            # 显示浏览器信息
+            browser_info = await self.cdp_manager.get_browser_info()
+            utils.logger.info(f"[XHSSimulationCrawler] CDP浏览器信息: {browser_info}")
+
+            return browser_context
+
+        except Exception as e:
+            utils.logger.error(f"[XHSSimulationCrawler] CDP模式启动失败: {e}")
+            # 回退到标准模式
+            chromium = playwright.chromium
+            return await self.launch_browser(chromium, playwright_proxy, user_agent, headless)
     
     async def close(self) -> None:
         """关闭爬虫"""
         utils.logger.info("[XHSSimulationCrawler] 关闭模拟爬虫")
         
-        if self.context_page:
-            await self.context_page.close()
+        # 如果使用CDP模式，需要特殊处理
+        if hasattr(self, 'cdp_manager') and self.cdp_manager:
+            await self.cdp_manager.cleanup()
+            self.cdp_manager = None
+        else:
+            if self.context_page:
+                await self.context_page.close()
+            
+            if self.browser_context:
+                await self.browser_context.close()
         
-        if self.browser_context:
-            await self.browser_context.close()
-        
-        if self.cdp_manager:
-            await self.cdp_manager.close()
+        utils.logger.info("[XHSSimulationCrawler] 浏览器上下文已关闭")
     
     async def _simulate_search_behavior(self, keyword: str) -> None:
         """模拟搜索行为"""
