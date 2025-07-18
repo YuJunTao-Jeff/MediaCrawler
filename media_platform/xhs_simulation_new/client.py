@@ -375,3 +375,8 @@ class XHSSimulationClient(AbstractApiClient):
         except Exception as e:
             utils.logger.error(f"[XHSSimulationClient] 解析用户信息失败: {e}")
             return {}
+    
+    async def update_cookies(self, cookie_dict: Dict[str, str]) -> None:
+        """更新Cookie"""
+        self.cookie_dict = cookie_dict
+        utils.logger.info("[XHSSimulationClient] Cookie已更新")

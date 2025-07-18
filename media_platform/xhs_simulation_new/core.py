@@ -338,16 +338,19 @@ class XHSSimulationCrawler(AbstractCrawler):
             "--no-default-browser-check",
             "--disable-blink-features=AutomationControlled",
             "--disable-web-security",
-            "--disable-features=VizDisplayCompositor"
+            "--disable-features=VizDisplayCompositor",
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox"
         ]
         
         # 随机化浏览器指纹
         if self.simulation_config['enable_anti_detection']:
             browser_args.extend([
                 "--disable-extensions-except",
-                "--disable-plugins-discovery",
-                "--no-sandbox",
-                "--disable-setuid-sandbox"
+                "--disable-plugins-discovery"
             ])
         
         browser = await chromium.launch(

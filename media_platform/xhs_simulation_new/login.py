@@ -75,15 +75,66 @@ class XHSSimulationLogin(AbstractLogin):
         utils.logger.info("[XHSSimulationLogin] 使用二维码登录")
         
         try:
-            # 点击登录按钮
-            login_button_selector = ".login-btn, .sign-in-button, [data-testid='login-button']"
-            await self.behavior_simulator.simulate_click_with_delay(login_button_selector)
+            # 先处理可能的遮罩和弹窗
+            await self._handle_page_overlays()
+            
+            # 尝试多种方式触发登录
+            login_success = False
+            
+            # 方法1: 直接查找并点击登录相关元素
+            login_selectors = [
+                "div.login-btn",
+                ".side-bar-component.login-btn", 
+                ".login-button",
+                ".sign-in-button",
+                "[data-testid='login-button']",
+                "button:has-text('登录')",
+                "div:has-text('登录')"
+            ]
+            
+            for selector in login_selectors:
+                try:
+                    element = await self.context_page.query_selector(selector)
+                    if element and await element.is_visible():
+                        utils.logger.info(f"[XHSSimulationLogin] 尝试点击登录元素: {selector}")
+                        await element.click(force=True)
+                        login_success = True
+                        break
+                except Exception as e:
+                    utils.logger.debug(f"[XHSSimulationLogin] 点击失败 {selector}: {e}")
+                    continue
+            
+            # 方法2: 如果直接点击失败，尝试键盘导航
+            if not login_success:
+                utils.logger.info("[XHSSimulationLogin] 尝试键盘导航到登录按钮")
+                await self.context_page.keyboard.press('Tab')
+                await asyncio.sleep(0.5)
+                await self.context_page.keyboard.press('Enter')
             
             # 等待二维码出现
-            qr_selector = ".qrcode, .qr-code, [class*='qr']"
-            await self.context_page.wait_for_selector(qr_selector, timeout=10000)
+            qr_selectors = [
+                ".qrcode", 
+                ".qr-code", 
+                "[class*='qr']",
+                "img[src*='qr']",
+                "canvas",
+                ".login-qrcode"
+            ]
             
-            utils.logger.info("[XHSSimulationLogin] 请使用小红书APP扫描二维码登录")
+            qr_found = False
+            for qr_selector in qr_selectors:
+                try:
+                    await self.context_page.wait_for_selector(qr_selector, timeout=5000)
+                    qr_found = True
+                    utils.logger.info(f"[XHSSimulationLogin] 找到二维码: {qr_selector}")
+                    break
+                except:
+                    continue
+            
+            if not qr_found:
+                utils.logger.warning("[XHSSimulationLogin] 未找到二维码，但继续等待登录")
+            
+            utils.logger.info("[XHSSimulationLogin] 请使用小红书APP扫描二维码登录，或手动完成登录流程")
             
             # 等待登录成功（检查页面变化）
             await self._wait_for_login_success()
@@ -212,3 +263,68 @@ class XHSSimulationLogin(AbstractLogin):
             return "success"
         else:
             return "failed"
+    
+    async def login_by_qrcode(self) -> None:
+        """二维码登录（抽象方法实现）"""
+        await self._qrcode_login()
+    
+    async def login_by_mobile(self) -> None:
+        """手机号登录（抽象方法实现）"""
+        await self._phone_login()
+    
+    async def login_by_cookies(self) -> None:
+        """Cookie登录（抽象方法实现）"""
+        await self._cookie_login()
+    
+    async def _handle_page_overlays(self) -> None:
+        """处理页面遮罩和弹窗"""
+        try:
+            # 处理可能的遮罩层
+            overlay_selectors = [
+                ".reds-mask",
+                ".mask",
+                ".overlay",
+                ".modal-backdrop",
+                "[class*='mask']",
+                "[aria-label='弹窗遮罩']"
+            ]
+            
+            for selector in overlay_selectors:
+                try:
+                    elements = await self.context_page.query_selector_all(selector)
+                    for element in elements:
+                        if await element.is_visible():
+                            utils.logger.info(f"[XHSSimulationLogin] 发现遮罩层，尝试点击: {selector}")
+                            await element.click(force=True)
+                            await asyncio.sleep(0.5)
+                except Exception as e:
+                    utils.logger.debug(f"[XHSSimulationLogin] 处理遮罩失败 {selector}: {e}")
+                    continue
+            
+            # 处理可能的弹窗关闭按钮
+            close_selectors = [
+                ".close",
+                ".close-btn", 
+                "[aria-label='关闭']",
+                "[class*='close']",
+                "button:has-text('×')",
+                "button:has-text('关闭')"
+            ]
+            
+            for selector in close_selectors:
+                try:
+                    element = await self.context_page.query_selector(selector)
+                    if element and await element.is_visible():
+                        utils.logger.info(f"[XHSSimulationLogin] 发现关闭按钮，尝试点击: {selector}")
+                        await element.click()
+                        await asyncio.sleep(0.5)
+                except Exception as e:
+                    utils.logger.debug(f"[XHSSimulationLogin] 处理关闭按钮失败 {selector}: {e}")
+                    continue
+            
+            # 按ESC键关闭可能的弹窗
+            await self.context_page.keyboard.press('Escape')
+            await asyncio.sleep(1)
+            
+        except Exception as e:
+            utils.logger.warning(f"[XHSSimulationLogin] 处理页面遮罩失败: {e}")

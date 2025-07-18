@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from playwright.async_api import Page, Response
 
-from .field import InterceptType, BehaviorType, AntiDetectionLevel
+from .field import InterceptType, BehaviorType, AntiDetectionLevel, SearchSortType
 from .exception import NetworkInterceptError, UserBehaviorSimulationError, AntiDetectionError
 
 
