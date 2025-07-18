@@ -363,6 +363,31 @@ XHS_LOGIN_PHONE = ""
 # 小红书Cookie字符串（Cookie登录时使用）
 XHS_COOKIE_STR = ""
 
+# ==================== 贴吧模拟爬虫配置 ====================
+# 是否启用贴吧模拟爬虫
+TIEBA_SIMULATION_ENABLED = True
+
+# 是否启用用户行为模拟
+TIEBA_SIMULATION_USER_BEHAVIOR = True
+
+# 是否启用反检测功能
+TIEBA_SIMULATION_ANTI_DETECTION = True
+
+# 反检测级别 (low, medium, high, extreme)
+TIEBA_SIMULATION_ANTI_DETECTION_LEVEL = "medium"
+
+# 用户行为延迟范围（秒）
+TIEBA_SIMULATION_BEHAVIOR_DELAY = (1.0, 3.0)
+
+# 滚动次数范围
+TIEBA_SIMULATION_SCROLL_COUNT = (2, 5)
+
+# 贴吧登录手机号（手机号登录时使用）
+TIEBA_LOGIN_PHONE = ""
+
+# 贴吧Cookie字符串（Cookie登录时使用）
+TIEBA_COOKIE_STR = ""
+
 # ==================== 新闻平台配置 ====================
 # Tavily搜索引擎API密钥
 TAVILY_API_KEY = "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"

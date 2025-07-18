@@ -18,8 +18,8 @@ from tools.utils import str2bool
 async def parse_cmd():
     # 读取command arg
     parser = argparse.ArgumentParser(description='Media crawler program.')
-    parser.add_argument('--platform', type=str, help='Media platform select (xhs | xhs_simulation_new | dy | ks | bili | wb | tieba | zhihu | news)',
-                        choices=["xhs", "xhs_simulation_new", "dy", "ks", "bili", "wb", "tieba", "zhihu", "news"], default=config.PLATFORM)
+    parser.add_argument('--platform', type=str, help='Media platform select (xhs | xhs_simulation_new | tieba | tieba_simulation | dy | ks | bili | wb | zhihu | news)',
+                        choices=["xhs", "xhs_simulation_new", "tieba", "tieba_simulation", "dy", "ks", "bili", "wb", "zhihu", "news"], default=config.PLATFORM)
     parser.add_argument('--lt', type=str, help='Login type (qrcode | phone | cookie)',
                         choices=["qrcode", "phone", "cookie"], default=config.LOGIN_TYPE)
     parser.add_argument('--type', type=str, help='crawler type (search | detail | creator)',
