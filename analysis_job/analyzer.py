@@ -1,0 +1,225 @@
+"""
+AI分析器模块
+"""
+
+import json
+import time
+import logging
+from typing import List, Dict, Any, Optional
+from langchain_openai import ChatOpenAI
+from langchain.schema import HumanMessage, SystemMessage
+
+from .config import ANALYSIS_CONFIG, OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+from .models import ContentItem, AnalysisResult, BatchAnalysisRequest
+
+
+logger = logging.getLogger(__name__)
+
+
+class AIAnalyzer:
+    """AI分析器"""
+    
+    def __init__(self, config: Dict[str, Any] = None):
+        self.config = config or ANALYSIS_CONFIG
+        self.llm = ChatOpenAI(
+            model=self.config["model"],
+            temperature=self.config["temperature"],
+            max_tokens=self.config["max_tokens"],
+            timeout=self.config["timeout"],
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_BASE_URL
+        )
+        logger.info(f"AI分析器初始化完成，模型: {self.config['model']}")
+    
+    def _build_analysis_prompt(self, content_items: List[ContentItem]) -> List[Any]:
+        """构建分析提示词"""
+        system_prompt = """你是一个专业的社交媒体内容分析师，需要对提供的内容进行全面分析。
+
+分析要求：
+1. 情感分析：判断内容的情感倾向（positive/negative/neutral）
+2. 情感评分：给出0-1之间的情感强度评分（1表示情感最强烈）
+3. 内容总结：用1-2句话总结内容核心要点
+4. 关键词提取：提取3-5个最重要的关键词
+5. 内容分类：对内容进行分类（如：产品评价、服务体验、价格讨论、使用教程、问题反馈等）
+6. 相关性评分：评估内容与主题的相关性（0-1之间）
+7. 重点评论：如果有评论，识别最重要的评论ID（最多3个）
+
+请严格按照以下JSON格式返回结果，不要包含任何其他文字："""
+        
+        # 准备内容数据
+        content_data = []
+        for item in content_items:
+            item_data = {
+                "content_id": item.content_id,
+                "platform": item.platform,
+                "content": item.get_content_with_comments()[:4000],  # 限制长度
+                "comment_count": len(item.comments)
+            }
+            content_data.append(item_data)
+        
+        user_prompt = f"""
+请分析以下{len(content_items)}条社交媒体内容：
+
+{json.dumps(content_data, ensure_ascii=False, indent=2)}
+
+输出格式：
+[
+  {{
+    "content_id": "内容ID",
+    "sentiment": "positive/negative/neutral",
+    "sentiment_score": 0.85,
+    "summary": "内容核心要点总结",
+    "keywords": ["关键词1", "关键词2", "关键词3"],
+    "category": "内容分类",
+    "relevance_score": 0.92,
+    "key_comment_ids": ["评论ID1", "评论ID2"]
+  }}
+]
+
+请确保返回有效的JSON格式，每个内容都要有对应的分析结果。"""
+        
+        return [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+    
+    def _parse_analysis_response(self, response: str, content_items: List[ContentItem]) -> List[AnalysisResult]:
+        """解析分析响应"""
+        try:
+            # 尝试解析JSON
+            response_data = json.loads(response)
+            
+            if not isinstance(response_data, list):
+                raise ValueError("响应不是列表格式")
+            
+            results = []
+            current_timestamp = int(time.time() * 1000)
+            
+            for i, item_data in enumerate(response_data):
+                if i >= len(content_items):
+                    break
+                
+                content_item = content_items[i]
+                
+                # 验证和清理数据
+                result = AnalysisResult(
+                    content_id=item_data.get("content_id", content_item.content_id),
+                    sentiment=item_data.get("sentiment", "neutral"),
+                    sentiment_score=float(item_data.get("sentiment_score", 0.5)),
+                    summary=item_data.get("summary", "")[:500],  # 限制长度
+                    keywords=item_data.get("keywords", [])[:5],  # 最多5个关键词
+                    category=item_data.get("category", "其他"),
+                    relevance_score=float(item_data.get("relevance_score", 0.5)),
+                    key_comment_ids=item_data.get("key_comment_ids", [])[:3],  # 最多3个评论ID
+                    analysis_timestamp=current_timestamp,
+                    model_version=self.config["model"],
+                    content_length=content_item.get_content_length(),
+                    comment_count=len(content_item.comments)
+                )
+                
+                # 验证结果
+                if result.validate():
+                    results.append(result)
+                else:
+                    logger.warning(f"分析结果验证失败: {content_item.content_id}")
+                    # 创建默认结果
+                    results.append(self._create_default_result(content_item))
+            
+            # 如果解析的结果少于输入项，为剩余项创建默认结果
+            while len(results) < len(content_items):
+                results.append(self._create_default_result(content_items[len(results)]))
+            
+            return results
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析失败: {e}")
+            logger.error(f"原始响应: {response[:500]}...")
+            # 返回默认结果
+            return [self._create_default_result(item) for item in content_items]
+        except Exception as e:
+            logger.error(f"响应解析失败: {e}")
+            return [self._create_default_result(item) for item in content_items]
+    
+    def _create_default_result(self, content_item: ContentItem) -> AnalysisResult:
+        """创建默认分析结果"""
+        return AnalysisResult(
+            content_id=content_item.content_id,
+            sentiment="neutral",
+            sentiment_score=0.5,
+            summary="分析失败，无法生成总结",
+            keywords=[],
+            category="其他",
+            relevance_score=0.5,
+            key_comment_ids=[],
+            analysis_timestamp=int(time.time() * 1000),
+            model_version=self.config["model"],
+            content_length=content_item.get_content_length(),
+            comment_count=len(content_item.comments)
+        )
+    
+    def analyze_batch(self, content_items: List[ContentItem], retry_count: int = 0) -> List[AnalysisResult]:
+        """批量分析内容"""
+        if not content_items:
+            return []
+        
+        max_retries = self.config.get("max_retries", 3)
+        retry_delay = self.config.get("retry_delay", 1.0)
+        
+        try:
+            logger.info(f"开始分析批次: {len(content_items)} 条内容")
+            
+            # 构建消息
+            messages = self._build_analysis_prompt(content_items)
+            
+            # 调用模型
+            response = self.llm.invoke(messages)
+            
+            # 解析响应
+            results = self._parse_analysis_response(response.content, content_items)
+            
+            logger.info(f"批次分析完成: {len(results)} 条结果")
+            return results
+            
+        except Exception as e:
+            logger.error(f"批次分析失败 (重试 {retry_count + 1}/{max_retries}): {e}")
+            
+            if retry_count < max_retries:
+                # 等待后重试
+                time.sleep(retry_delay * (2 ** retry_count))  # 指数退避
+                return self.analyze_batch(content_items, retry_count + 1)
+            else:
+                # 达到最大重试次数，返回默认结果
+                logger.error(f"达到最大重试次数，返回默认结果")
+                return [self._create_default_result(item) for item in content_items]
+    
+    def analyze_single(self, content_item: ContentItem) -> AnalysisResult:
+        """分析单个内容"""
+        results = self.analyze_batch([content_item])
+        return results[0] if results else self._create_default_result(content_item)
+    
+    def analyze_batch_request(self, request: BatchAnalysisRequest) -> List[AnalysisResult]:
+        """分析批次请求"""
+        return self.analyze_batch(request.content_items)
+    
+    def test_connection(self) -> bool:
+        """测试连接"""
+        try:
+            test_item = ContentItem(
+                platform="test",
+                content_id="test_001",
+                title="测试标题",
+                content="这是一个测试内容，用于验证AI分析器是否正常工作。"
+            )
+            
+            result = self.analyze_single(test_item)
+            
+            if result and result.content_id == "test_001":
+                logger.info("AI分析器连接测试成功")
+                return True
+            else:
+                logger.error("AI分析器连接测试失败")
+                return False
+                
+        except Exception as e:
+            logger.error(f"AI分析器连接测试异常: {e}")
+            return False

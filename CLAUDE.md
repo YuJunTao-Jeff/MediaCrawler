@@ -475,3 +475,135 @@ python main.py --platform xhs --type search --keywords "test" --browser_concurre
 ```
 
 这种浏览器自动化+网络拦截的技术方案代表了现代爬虫技术的发展方向，能够有效应对日益复杂的反爬虫机制，是MediaCrawler项目未来发展的重要技术储备。
+
+## AI分析任务系统
+
+### 功能需求描述 (2025-07-18)
+
+#### 核心需求
+1. **统一AI分析系统**: 在根目录创建`analysis_job`目录，集中管理所有AI分析相关代码
+2. **简化模型配置**: 统一使用GPT-4o-mini模型，无需复杂的模型路由和选择逻辑
+3. **数据库结构扩展**: 为主要内容表(bilibili_video, douyin_aweme, kuaishou_video, weibo_note, xhs_note, tieba_note, zhihu_content)添加`analysis_info`字段，JSON格式存储分析结果
+4. **智能内容聚合**: 
+   - 新闻类内容：仅传递正文内容进行分析
+   - 其他平台内容：传递帖子内容+评论内容进行综合评估
+5. **动态分批处理**: 根据内容总字符数动态调整批次大小，避免单次请求过大
+6. **结构化分析结果**: 返回包含内容ID、情感正负面、情感评分、总结、关键词、分类、相关性评分、重点评论ID等信息的JSON格式结果
+7. **完善错误处理**: 三次重试机制，处理请求失败、JSON格式错误等异常情况，失败后记录错误日志并跳过该条数据
+
+#### 分析结果JSON格式
+```json
+{
+  "content_id": "内容唯一标识",
+  "sentiment": "positive/negative/neutral",
+  "sentiment_score": 0.85,
+  "summary": "内容核心要点总结",
+  "keywords": ["关键词1", "关键词2", "关键词3"],
+  "category": "内容分类标签",
+  "relevance_score": 0.92,
+  "key_comment_ids": ["重点评论ID1", "重点评论ID2"],
+  "analysis_timestamp": 1704096000000,
+  "model_version": "gpt-4o-mini",
+  "content_length": 1500,
+  "comment_count": 25
+}
+```
+
+### 技术实施方案
+
+#### 1. 系统架构设计
+```
+MediaCrawler/
+├── analysis_job/
+│   ├── __init__.py
+│   ├── analyzer.py              # GPT-4o-mini分析器
+│   ├── batch_processor.py       # 批量处理器
+│   ├── database.py              # 数据库操作封装
+│   ├── models.py                # 数据模型定义
+│   ├── scheduler.py             # 任务调度器
+│   ├── config.py                # 配置管理
+│   └── utils.py                 # 工具函数
+└── schema/
+    └── tables.sql               # 更新的数据库结构
+```
+
+#### 2. 核心技术特性
+- **统一模型调用**: 使用LangChain集成GPT-4o-mini，避免复杂的模型选择逻辑
+- **智能内容处理**: 自动识别内容类型，对新闻和社交媒体内容采用不同的处理策略
+- **动态批量优化**: 根据内容总长度智能调整批次大小，平衡性能和API限制
+- **三层错误处理**: 网络重试、JSON解析重试、数据库操作重试，确保系统稳定性
+- **结构化数据流**: 从数据读取到分析结果存储的完整数据流程
+
+#### 3. 处理流程
+1. **数据查询**: 从数据库中批量查询未分析的内容
+2. **内容聚合**: 根据内容类型聚合帖子和评论数据
+3. **动态分批**: 计算内容总长度，动态调整批次大小
+4. **AI分析**: 调用GPT-4o-mini进行批量分析
+5. **结果解析**: 解析和验证AI返回的JSON结果
+6. **数据存储**: 批量更新数据库中的analysis_info字段
+7. **错误处理**: 记录失败案例，支持后续重试
+
+#### 4. 核心组件详解
+
+##### 分析器 (analyzer.py)
+- 基于LangChain的GPT-4o-mini集成
+- 支持批量分析和单条分析
+- 智能prompt工程，确保高质量分析结果
+- 完善的错误处理和重试机制
+
+##### 批量处理器 (batch_processor.py)
+- 动态批次大小计算算法
+- 内容类型识别和处理策略
+- 并发处理优化
+- 进度跟踪和统计报告
+
+##### 数据库操作 (database.py)
+- 批量查询优化
+- 事务处理保证数据一致性
+- 连接池管理
+- 错误恢复和数据完整性检查
+
+##### 任务调度器 (scheduler.py)
+- 支持手动和定时触发
+- 任务状态管理
+- 日志记录和监控
+- 资源使用优化
+
+#### 5. 部署和运行
+```bash
+# 安装依赖
+pip install langchain openai
+
+# 运行批量分析
+python -m analysis_job.batch_processor --platform xhs --limit 100
+
+# 运行定时任务
+python -m analysis_job.scheduler --mode daemon
+
+# 手动分析指定内容
+python -m analysis_job.analyzer --content_id "video_123"
+```
+
+#### 6. 性能优化策略
+- **批量处理**: 减少数据库I/O操作
+- **连接复用**: 优化数据库连接池配置
+- **内存管理**: 合理的批次大小控制内存使用
+- **并发控制**: 适当的并发级别平衡性能和资源消耗
+- **缓存机制**: 避免重复分析已处理的内容
+
+#### 7. 监控和维护
+- **分析质量监控**: 定期检查分析结果的准确性
+- **性能指标跟踪**: 监控处理速度、成功率、错误率
+- **成本控制**: 跟踪API调用成本和使用量
+- **数据完整性**: 定期检查数据库一致性
+
+这个AI分析任务系统采用了简化设计理念，避免了过度工程化，专注于核心功能的稳定实现。通过统一的模型调用、智能的内容处理和完善的错误处理，为MediaCrawler项目提供了可靠的AI分析能力。
+
+# important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+
+      
+      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context or otherwise consider it in your response unless it is highly relevant to your task. Most of the time, it is not relevant.
