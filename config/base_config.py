@@ -27,7 +27,7 @@ WEIBO_SEARCH_TYPE = "default"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 # 是否开启 IP 代理
-ENABLE_IP_PROXY = True
+ENABLE_IP_PROXY = False
 
 # 未启用代理时的最大爬取间隔，单位秒（暂时仅对XHS有效）
 CRAWLER_MAX_SLEEP_SEC = 6
@@ -217,6 +217,59 @@ ZHIHU_SPECIFIED_ID_LIST = [
     "https://www.zhihu.com/zvideo/1539542068422144000",  # 视频
 ]
 
+# ==================== 小红书模拟爬虫配置 ====================
+# 是否启用小红书模拟爬虫（浏览器自动化+网络拦截）
+XHS_SIMULATION_ENABLED = False
+
+# 小红书模拟爬虫是否启用无头模式
+XHS_SIMULATION_HEADLESS = False
+
+# 小红书模拟爬虫并发数量
+XHS_SIMULATION_CONCURRENCY = 1
+
+# 是否启用用户行为模拟
+XHS_SIMULATION_USER_BEHAVIOR = True
+
+# 是否启用反检测策略
+XHS_SIMULATION_ANTI_DETECTION = True
+
+# 滚动次数配置
+XHS_SIMULATION_SCROLL_COUNT = 5
+
+# 页面加载超时时间（秒）
+XHS_SIMULATION_PAGE_LOAD_TIMEOUT = 30
+
+# 操作延迟范围（秒）
+XHS_SIMULATION_OPERATION_DELAY_RANGE = (1, 3)
+
+# 最大重试次数
+XHS_SIMULATION_MAX_RETRY_COUNT = 3
+
+# 检测检查间隔（秒）
+XHS_SIMULATION_DETECTION_CHECK_INTERVAL = 10
+
+# 基础延迟时间（秒）
+XHS_SIMULATION_BASE_DELAY = 2.0
+
+# 网络拦截的目标API模式
+XHS_SIMULATION_NETWORK_PATTERNS = [
+    "*/api/sns/web/v1/search/notes*",
+    "*/api/sns/web/v1/note/detail*",
+    "*/api/sns/web/v1/feed*",
+    "*/api/sns/web/v1/user/notes*",
+    "*/api/sns/web/v1/comment/list*"
+]
+
+# 用户行为模拟配置
+XHS_SIMULATION_SCROLL_BEHAVIOR_RANDOM = True
+XHS_SIMULATION_TYPING_BEHAVIOR_RANDOM = True
+XHS_SIMULATION_MOUSE_BEHAVIOR_RANDOM = True
+
+# 反检测配置
+XHS_SIMULATION_FINGERPRINT_RANDOMIZATION = True
+XHS_SIMULATION_REQUEST_HEADER_RANDOMIZATION = True
+XHS_SIMULATION_VIEWPORT_RANDOMIZATION = True
+
 # 词云相关
 # 是否开启生成评论词云图
 ENABLE_GET_WORDCLOUD = False
@@ -284,6 +337,31 @@ TASK_TIMEOUT = 3600  # 1小时
 
 # 是否在启动时清理历史任务
 CLEANUP_HISTORY_TASKS = False
+
+# ==================== 小红书模拟爬虫配置 ====================
+# 是否启用小红书模拟爬虫
+XHS_SIMULATION_ENABLED = True
+
+# 是否启用用户行为模拟
+XHS_SIMULATION_USER_BEHAVIOR = True
+
+# 是否启用反检测功能
+XHS_SIMULATION_ANTI_DETECTION = True
+
+# 反检测级别 (low, medium, high, extreme)
+XHS_SIMULATION_ANTI_DETECTION_LEVEL = "medium"
+
+# 用户行为延迟范围（秒）
+XHS_SIMULATION_BEHAVIOR_DELAY = (1.0, 3.0)
+
+# 滚动次数范围
+XHS_SIMULATION_SCROLL_COUNT = (2, 5)
+
+# 小红书登录手机号（手机号登录时使用）
+XHS_LOGIN_PHONE = ""
+
+# 小红书Cookie字符串（Cookie登录时使用）
+XHS_COOKIE_STR = ""
 
 # ==================== 新闻平台配置 ====================
 # Tavily搜索引擎API密钥

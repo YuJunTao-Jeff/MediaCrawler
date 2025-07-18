@@ -24,12 +24,16 @@ from media_platform.news import NewsCrawler
 from media_platform.tieba import TieBaCrawler
 from media_platform.weibo import WeiboCrawler
 from media_platform.xhs import XiaoHongShuCrawler
+from media_platform.xhs_simulation import XHSSimulationCrawler
+from media_platform.xhs_simulation_new import XHSSimulationCrawler as XHSSimulationNewCrawler
 from media_platform.zhihu import ZhihuCrawler
 
 
 class CrawlerFactory:
     CRAWLERS = {
         "xhs": XiaoHongShuCrawler,
+        "xhs_simulation": XHSSimulationCrawler,
+        "xhs_simulation_new": XHSSimulationNewCrawler,
         "dy": DouYinCrawler,
         "ks": KuaishouCrawler,
         "bili": BilibiliCrawler,
@@ -43,7 +47,7 @@ class CrawlerFactory:
     def create_crawler(platform: str) -> AbstractCrawler:
         crawler_class = CrawlerFactory.CRAWLERS.get(platform)
         if not crawler_class:
-            raise ValueError("Invalid Media Platform Currently only supported xhs or dy or ks or bili or wb or tieba or zhihu or news ...")
+            raise ValueError("Invalid Media Platform Currently only supported xhs or xhs_simulation or dy or ks or bili or wb or tieba or zhihu or news ...")
         return crawler_class()
 
 async def main():
