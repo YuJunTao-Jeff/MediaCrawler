@@ -75,6 +75,11 @@ class NetworkInterceptor:
             'searchjson',     # 搜索JSON
             'floorpb',        # 楼层回复
             '/f/commit/thread', # 发帖
+            'api/search',     # API搜索
+            'api/thread',     # API帖子
+            'api/post',       # API发帖
+            'pn=',            # 分页参数
+            'kw=',            # 关键词参数
         ]
         
         return any(pattern in url for pattern in target_patterns)
@@ -117,9 +122,18 @@ class UserBehaviorSimulator:
                 # 执行滚动
                 await self.page.evaluate(f"window.scrollBy(0, {scroll_distance})")
                 
+                # 等待页面稳定
+                await asyncio.sleep(0.5)
+                
                 # 随机等待
                 delay = random.randint(*delay_range)
                 await asyncio.sleep(delay / 1000)
+                
+                # 偶尔向上滚动，模拟真实用户行为
+                if random.random() < 0.2:  # 20%概率向上滚动
+                    up_distance = random.randint(100, 300)
+                    await self.page.evaluate(f"window.scrollBy(0, -{up_distance})")
+                    await asyncio.sleep(0.3)
                 
         except Exception as e:
             raise UserBehaviorSimulationError(f"滚动模拟失败: {e}")

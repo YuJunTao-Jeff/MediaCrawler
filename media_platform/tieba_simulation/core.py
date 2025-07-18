@@ -112,8 +112,11 @@ class TiebaSimulationCrawler(AbstractCrawler):
                 level = level_map.get(self.simulation_config['anti_detection_level'], AntiDetectionLevel.MEDIUM)
                 await anti_detection.setup_stealth_mode(level)
             
-            # 登录处理
-            await self.login()
+            # 登录处理（但不强制要求登录成功）
+            try:
+                await self.login()
+            except Exception as e:
+                utils.logger.warning(f"[TiebaSimulationCrawler] 登录失败，但继续进行: {e}")
             
             # 启动断点续爬
             if config.ENABLE_RESUME_CRAWL:
@@ -154,7 +157,11 @@ class TiebaSimulationCrawler(AbstractCrawler):
                 page = 1
                 max_pages = getattr(config, 'PAGE_LIMIT', 20)
                 
-                while page <= max_pages:
+                # 加入最大空页计数
+                empty_page_count = 0
+                max_empty_pages = 3
+                
+                while page <= max_pages and empty_page_count < max_empty_pages:
                     try:
                         utils.logger.info(f"[TiebaSimulationCrawler] 搜索关键词: {keyword}, 页码: {page}")
                         
@@ -167,14 +174,18 @@ class TiebaSimulationCrawler(AbstractCrawler):
                         
                         posts = posts_result.get('posts', [])
                         if not posts:
-                            utils.logger.info(f"[TiebaSimulationCrawler] 关键词 {keyword} 第 {page} 页无数据")
-                            break
-                        
-                        utils.logger.info(f"[TiebaSimulationCrawler] 获取到 {len(posts)} 个帖子")
-                        
-                        # 保存搜索结果
-                        for post in posts:
-                            await self._save_post_data(post)
+                            empty_page_count += 1
+                            utils.logger.info(f"[TiebaSimulationCrawler] 关键词 {keyword} 第 {page} 页无数据 (连续空页: {empty_page_count}/{max_empty_pages})")
+                            if empty_page_count >= max_empty_pages:
+                                utils.logger.warning(f"[TiebaSimulationCrawler] 连续 {max_empty_pages} 页无数据，停止该关键词的爬取")
+                                break
+                        else:
+                            empty_page_count = 0  # 重置空页计数
+                            utils.logger.info(f"[TiebaSimulationCrawler] 获取到 {len(posts)} 个帖子")
+                            
+                            # 保存搜索结果
+                            for post in posts:
+                                await self._save_post_data(post)
                         
                         # 模拟用户行为延迟
                         if self.simulation_config['enable_user_behavior']:
@@ -185,7 +196,14 @@ class TiebaSimulationCrawler(AbstractCrawler):
                         
                     except Exception as e:
                         utils.logger.error(f"[TiebaSimulationCrawler] 搜索失败 {keyword} 第 {page} 页: {e}")
-                        break
+                        # 如果是网络超时等可恢复错误，可以尝试继续下一页
+                        if "timeout" in str(e).lower() or "network" in str(e).lower():
+                            utils.logger.info(f"[TiebaSimulationCrawler] 网络错误，尝试继续下一页")
+                            page += 1
+                            if self.simulation_config['enable_user_behavior']:
+                                await asyncio.sleep(random.uniform(2, 5))  # 较长的延迟
+                        else:
+                            break
     
     async def get_specified_posts(self) -> None:
         """获取指定帖子详情"""
@@ -275,6 +293,19 @@ class TiebaSimulationCrawler(AbstractCrawler):
         """登录处理"""
         utils.logger.info("[TiebaSimulationCrawler] 开始登录流程")
         
+        # 检查是否已经登录
+        try:
+            # 检查登录状态
+            current_url = self.context_page.url
+            if "login" not in current_url:
+                # 检查是否有用户信息元素
+                user_elements = await self.context_page.query_selector_all(".u_menu_username, .user_name, .userinfo_username")
+                if user_elements:
+                    utils.logger.info("[TiebaSimulationCrawler] 检测到已登录状态，跳过登录流程")
+                    return
+        except Exception:
+            pass
+        
         login_obj = TiebaSimulationLogin(
             login_type=config.LOGIN_TYPE,
             browser_context=self.browser_context,
@@ -283,19 +314,26 @@ class TiebaSimulationCrawler(AbstractCrawler):
             cookie_str=getattr(config, 'TIEBA_COOKIE_STR', '')
         )
         
-        await login_obj.begin()
+        try:
+            await login_obj.begin()
+            utils.logger.info("[TiebaSimulationCrawler] 登录流程完成")
+        except Exception as e:
+            utils.logger.warning(f"[TiebaSimulationCrawler] 登录失败，但继续执行: {e}")
         
         # 更新Cookie
-        cookie_dict = await self.browser_context.cookies()
-        cookie_dict = {cookie['name']: cookie['value'] for cookie in cookie_dict}
-        
-        # 重新初始化客户端
-        self.tieba_client = TiebaSimulationClient(
-            timeout=30,
-            proxies=None,  # 代理信息保持不变
-            playwright_page=self.context_page,
-            cookie_dict=cookie_dict
-        )
+        try:
+            cookie_dict = await self.browser_context.cookies()
+            cookie_dict = {cookie['name']: cookie['value'] for cookie in cookie_dict}
+            
+            # 重新初始化客户端
+            self.tieba_client = TiebaSimulationClient(
+                timeout=30,
+                proxies=None,  # 代理信息保持不变
+                playwright_page=self.context_page,
+                cookie_dict=cookie_dict
+            )
+        except Exception as e:
+            utils.logger.error(f"[TiebaSimulationCrawler] 更新Cookie失败: {e}")
     
     async def launch_browser(self,
                            chromium: BrowserType,
@@ -315,7 +353,12 @@ class TiebaSimulationCrawler(AbstractCrawler):
             "--disable-software-rasterizer",
             "--disable-dev-shm-usage",
             "--no-sandbox",
-            "--disable-setuid-sandbox"
+            "--disable-setuid-sandbox",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-field-trial-config",
+            "--disable-ipc-flooding-protection"
         ]
         
         # 随机化浏览器指纹
@@ -393,17 +436,42 @@ class TiebaSimulationCrawler(AbstractCrawler):
             # 模拟在首页停留
             await behavior_sim.simulate_reading_behavior(1, 3)
             
-            # 模拟鼠标移动到搜索框
-            search_box_selector = "input[name='kw'], .search-input, #search-input"
-            await behavior_sim.simulate_mouse_movement(search_box_selector)
+            # 检查是否在贴吧首页，如果不是则导航过去
+            current_url = self.context_page.url
+            if "tieba.baidu.com" not in current_url or "/f/search" in current_url:
+                utils.logger.info("[TiebaSimulationCrawler] 导航到贴吧首页")
+                await self.context_page.goto("https://tieba.baidu.com", wait_until="domcontentloaded")
+                await asyncio.sleep(2)
             
-            # 模拟输入关键词（字符间有延迟）
-            try:
-                await self.context_page.fill(search_box_selector, "")  # 先清空
-                for char in keyword:
-                    await self.context_page.type(search_box_selector, char, delay=random.randint(50, 200))
-            except:
-                pass
+            # 模拟鼠标移动到搜索框
+            search_box_selectors = [
+                "input[name='kw']", 
+                ".search-input", 
+                "#search-input",
+                "input[placeholder*='搜索']",
+                "input[id='kw']"
+            ]
+            
+            search_box_found = False
+            for selector in search_box_selectors:
+                try:
+                    element = await self.context_page.query_selector(selector)
+                    if element and await element.is_visible():
+                        await behavior_sim.simulate_mouse_movement(selector)
+                        
+                        # 模拟输入关键词（字符间有延迟）
+                        await self.context_page.fill(selector, "")  # 先清空
+                        for char in keyword:
+                            await self.context_page.type(selector, char, delay=random.randint(50, 200))
+                        
+                        search_box_found = True
+                        break
+                except Exception as e:
+                    utils.logger.debug(f"[TiebaSimulationCrawler] 搜索框 {selector} 不可用: {e}")
+                    continue
+            
+            if not search_box_found:
+                utils.logger.warning("[TiebaSimulationCrawler] 未找到可用的搜索框")
             
             # 短暂停顿后执行搜索
             await asyncio.sleep(random.uniform(0.5, 1.5))
