@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from .config import BATCH_CONFIG, PLATFORM_TABLES
+from config.base_config import KEYWORDS
 from .database_orm import DatabaseManager
 from .analyzer import AIAnalyzer
 from .models import ContentItem, BatchAnalysisRequest, ProcessingStats
@@ -70,7 +71,7 @@ class BatchProcessor:
                 
                 try:
                     # 分析批次
-                    results = self.analyzer.analyze_batch_request(batch)
+                    results = self.analyzer.analyze_batch(batch.content_items, KEYWORDS)
                     
                     # 批量更新数据库
                     updated_count = self.db_manager.batch_update_analysis_results(platform, results)

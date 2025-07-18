@@ -33,9 +33,9 @@ class AIAnalyzer:
         self.cost_calculator = CostCalculator(self.config["model"])
         logger.info(f"AI分析器初始化完成，模型: {self.config['model']}")
     
-    def _build_analysis_prompt(self, content_items: List[ContentItem]) -> List[Any]:
+    def _build_analysis_prompt(self, content_items: List[ContentItem], source_keywords: str = "") -> List[Any]:
         """构建分析提示词"""
-        system_prompt = """你是一个专业的社交媒体内容分析师，需要对提供的内容进行全面分析。
+        system_prompt = f"""你是一个专业的社交媒体内容分析师，需要对提供的内容进行全面分析。
 
 分析要求：
 1. 情感分析：判断内容的情感倾向（positive/negative/neutral）
@@ -48,7 +48,7 @@ class AIAnalyzer:
 3. 内容总结：用1-2句话总结内容核心要点
 4. 关键词提取：提取3-5个最重要的关键词
 5. 内容分类：对内容进行分类（如：产品评价、服务体验、价格讨论、使用教程、问题反馈等）
-6. 相关性评分：评估内容与源关键词的相关性（0-1之间，需要考虑source_keyword）
+6. 相关性评分：评估内容与源关键词的相关性（0-1之间，源关键词为：{source_keywords}）
 7. 重点评论：如果有评论，识别最重要的评论ID（最多3个）
 
 请严格按照以下JSON格式返回结果，不要包含任何其他文字："""
@@ -56,10 +56,21 @@ class AIAnalyzer:
         # 准备内容数据
         content_data = []
         for item in content_items:
+            # 分别处理主要内容和评论
+            main_content = item.get_full_content()
+            comments_data = []
+            for comment in item.comments[:20]:  # 最多20个评论
+                if isinstance(comment, dict) and 'comment_id' in comment:
+                    comments_data.append({
+                        "comment_id": comment['comment_id'],
+                        "content": comment.get('content', '')[:200]  # 限制评论长度
+                    })
+            
             item_data = {
                 "content_id": item.content_id,
                 "platform": item.platform,
-                "content": item.get_content_with_comments()[:4000],  # 限制长度
+                "main_content": main_content[:2000],  # 限制主要内容长度
+                "comments": comments_data,
                 "comment_count": len(item.comments)
             }
             content_data.append(item_data)
@@ -69,25 +80,29 @@ class AIAnalyzer:
 
 {json.dumps(content_data, ensure_ascii=False, indent=2)}
 
+数据结构说明：
+- main_content: 主要内容（标题+正文）
+- comments: 评论列表，每个评论包含comment_id和content
+- 在分析时，请结合主要内容和评论进行综合评估
+- key_comment_ids字段请填写最重要的评论的comment_id（从comments中选择）
+
 输出格式：
 [
   {{
     "content_id": "内容ID",
     "sentiment": "positive/negative/neutral",
     "sentiment_score": 0.85,
-    "summary": "内容核心要点总结",
+    "summary": "内容核心要点总结，如果评论比较重要，把评论也附上简要总结",
     "keywords": ["关键词1", "关键词2", "关键词3"],
     "category": "内容分类",
     "relevance_score": 0.92,
-    "key_comment_ids": ["评论ID1", "评论ID2"],
-    "source_keyword": "源关键词"
+    "key_comment_ids": ["评论ID1", "评论ID2"]
   }}
 ]
 
 注意：
 - sentiment_score必须是-1到1之间的浮点数（-1=极负面，-0.5=负面，0=中性，0.5=正面，1=极正面）
 - relevance_score必须是0到1之间的浮点数（0=完全不相关，1=完全相关）
-- source_keyword应该填写与内容最相关的关键词
 
 请确保返回有效的JSON格式，每个内容都要有对应的分析结果。"""
         
@@ -127,15 +142,15 @@ class AIAnalyzer:
                     sentiment=item_data.get("sentiment", "neutral"),
                     sentiment_score=sentiment_score,
                     summary=item_data.get("summary", "")[:500],  # 限制长度
-                    keywords=item_data.get("keywords", [])[:5],  # 最多5个关键词
+                    keywords=item_data.get("keywords", []),  
                     category=item_data.get("category", "其他"),
                     relevance_score=float(item_data.get("relevance_score", 0.5)),
-                    key_comment_ids=item_data.get("key_comment_ids", [])[:3],  # 最多3个评论ID
+                    key_comment_ids=item_data.get("key_comment_ids", []), 
                     analysis_timestamp=current_timestamp,
                     model_version=self.config["model"],
                     content_length=content_item.get_content_length(),
                     comment_count=len(content_item.comments),
-                    source_keyword=item_data.get("source_keyword", "")
+                    source_keyword=getattr(self, '_current_source_keywords', "")
                 )
                 
                 # 添加结果
@@ -174,7 +189,7 @@ class AIAnalyzer:
             source_keyword=""  # 默认无源关键词
         )
     
-    def analyze_batch(self, content_items: List[ContentItem], retry_count: int = 0) -> List[AnalysisResult]:
+    def analyze_batch(self, content_items: List[ContentItem], source_keywords: str = "", retry_count: int = 0) -> List[AnalysisResult]:
         """批量分析内容"""
         if not content_items:
             return []
@@ -185,8 +200,11 @@ class AIAnalyzer:
         try:
             logger.info(f"开始分析批次: {len(content_items)} 条内容")
             
+            # 存储当前源关键词，用于解析响应时使用
+            self._current_source_keywords = source_keywords
+            
             # 构建消息
-            messages = self._build_analysis_prompt(content_items)
+            messages = self._build_analysis_prompt(content_items, source_keywords)
             
             # 调用模型
             response = self.llm.invoke(messages)
@@ -211,7 +229,7 @@ class AIAnalyzer:
             if retry_count < max_retries:
                 # 等待后重试
                 time.sleep(retry_delay * (2 ** retry_count))  # 指数退避
-                return self.analyze_batch(content_items, retry_count + 1)
+                return self.analyze_batch(content_items, source_keywords, retry_count + 1)
             else:
                 # 达到最大重试次数，返回默认结果
                 logger.error(f"达到最大重试次数，返回默认结果")
