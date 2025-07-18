@@ -93,6 +93,10 @@ class BatchProcessor:
             self.stats.finish()
             
             logger.info(f"平台 {platform} 处理完成: {self.stats.to_dict()}")
+            
+            # 输出成本统计
+            self.analyzer.log_cost_summary()
+            
             return self.stats
             
         except Exception as e:

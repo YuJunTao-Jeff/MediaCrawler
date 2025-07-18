@@ -11,6 +11,7 @@ from langchain.schema import HumanMessage, SystemMessage
 
 from .config import ANALYSIS_CONFIG, OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
 from .models import ContentItem, AnalysisResult, BatchAnalysisRequest
+from .cost_calculator import CostCalculator, TokenUsage, format_cost_summary
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class AIAnalyzer:
             api_key=OPENAI_API_KEY,
             base_url=OPENAI_BASE_URL
         )
+        self.cost_calculator = CostCalculator(self.config["model"])
         logger.info(f"AI分析器初始化完成，模型: {self.config['model']}")
     
     def _build_analysis_prompt(self, content_items: List[ContentItem]) -> List[Any]:
@@ -189,6 +191,14 @@ class AIAnalyzer:
             # 调用模型
             response = self.llm.invoke(messages)
             
+            # 提取token使用情况
+            token_usage = self.cost_calculator.extract_token_usage_from_response(response)
+            if token_usage:
+                cost_info = self.cost_calculator.add_usage(token_usage)
+                logger.info(f"API调用成本: {format_cost_summary(cost_info, token_usage)}")
+            else:
+                logger.warning("无法提取token使用信息")
+            
             # 解析响应
             results = self._parse_analysis_response(response.content, content_items)
             
@@ -215,6 +225,14 @@ class AIAnalyzer:
     def analyze_batch_request(self, request: BatchAnalysisRequest) -> List[AnalysisResult]:
         """分析批次请求"""
         return self.analyze_batch(request.content_items)
+    
+    def get_cost_summary(self) -> Dict[str, Any]:
+        """获取成本统计摘要"""
+        return self.cost_calculator.get_session_summary()
+    
+    def log_cost_summary(self):
+        """记录成本统计摘要"""
+        self.cost_calculator.log_session_summary()
     
     def test_connection(self) -> bool:
         """测试连接"""
