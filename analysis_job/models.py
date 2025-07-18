@@ -55,16 +55,17 @@ class AnalysisResult:
     """分析结果数据模型"""
     content_id: str
     sentiment: str
-    sentiment_score: float
+    sentiment_score: float  # -1 to 1 (负面到正面)
     summary: str
     keywords: List[str]
     category: str
-    relevance_score: float
+    relevance_score: float  # 0-1 (与source_keyword的相关性)
     key_comment_ids: List[str]
     analysis_timestamp: int
     model_version: str
     content_length: int
     comment_count: int
+    source_keyword: str = ""  # 源关键词
     
     def to_json(self) -> str:
         """转换为JSON字符串"""

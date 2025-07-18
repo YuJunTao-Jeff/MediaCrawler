@@ -37,11 +37,16 @@ class AIAnalyzer:
 
 分析要求：
 1. 情感分析：判断内容的情感倾向（positive/negative/neutral）
-2. 情感评分：给出0-1之间的情感强度评分（1表示情感最强烈）
+2. 情感评分：给出-1到1之间的情感评分（-1表示极负面，0表示中性，1表示极正面）
+   - 极负面内容：-1到-0.7（如投诉、愤怒、严重不满）
+   - 负面内容：-0.6到-0.1（如轻微不满、质疑）
+   - 中性内容：-0.1到0.1（如中性描述、客观陈述）
+   - 正面内容：0.1到0.6（如满意、认可）
+   - 极正面内容：0.7到1（如强烈推荐、赞美）
 3. 内容总结：用1-2句话总结内容核心要点
 4. 关键词提取：提取3-5个最重要的关键词
 5. 内容分类：对内容进行分类（如：产品评价、服务体验、价格讨论、使用教程、问题反馈等）
-6. 相关性评分：评估内容与主题的相关性（0-1之间）
+6. 相关性评分：评估内容与源关键词的相关性（0-1之间，需要考虑source_keyword）
 7. 重点评论：如果有评论，识别最重要的评论ID（最多3个）
 
 请严格按照以下JSON格式返回结果，不要包含任何其他文字："""
@@ -72,9 +77,15 @@ class AIAnalyzer:
     "keywords": ["关键词1", "关键词2", "关键词3"],
     "category": "内容分类",
     "relevance_score": 0.92,
-    "key_comment_ids": ["评论ID1", "评论ID2"]
+    "key_comment_ids": ["评论ID1", "评论ID2"],
+    "source_keyword": "源关键词"
   }}
 ]
+
+注意：
+- sentiment_score必须是-1到1之间的浮点数（-1=极负面，-0.5=负面，0=中性，0.5=正面，1=极正面）
+- relevance_score必须是0到1之间的浮点数（0=完全不相关，1=完全相关）
+- source_keyword应该填写与内容最相关的关键词
 
 请确保返回有效的JSON格式，每个内容都要有对应的分析结果。"""
         
@@ -102,10 +113,17 @@ class AIAnalyzer:
                 content_item = content_items[i]
                 
                 # 验证和清理数据
+                sentiment_score = float(item_data.get("sentiment_score", 0.0))
+                # 确保情感评分在-1到1之间
+                if sentiment_score < -1:
+                    sentiment_score = -1
+                elif sentiment_score > 1:
+                    sentiment_score = 1
+                
                 result = AnalysisResult(
                     content_id=item_data.get("content_id", content_item.content_id),
                     sentiment=item_data.get("sentiment", "neutral"),
-                    sentiment_score=float(item_data.get("sentiment_score", 0.5)),
+                    sentiment_score=sentiment_score,
                     summary=item_data.get("summary", "")[:500],  # 限制长度
                     keywords=item_data.get("keywords", [])[:5],  # 最多5个关键词
                     category=item_data.get("category", "其他"),
@@ -114,16 +132,12 @@ class AIAnalyzer:
                     analysis_timestamp=current_timestamp,
                     model_version=self.config["model"],
                     content_length=content_item.get_content_length(),
-                    comment_count=len(content_item.comments)
+                    comment_count=len(content_item.comments),
+                    source_keyword=item_data.get("source_keyword", "")
                 )
                 
-                # 验证结果
-                if result.validate():
-                    results.append(result)
-                else:
-                    logger.warning(f"分析结果验证失败: {content_item.content_id}")
-                    # 创建默认结果
-                    results.append(self._create_default_result(content_item))
+                # 添加结果
+                results.append(result)
             
             # 如果解析的结果少于输入项，为剩余项创建默认结果
             while len(results) < len(content_items):
@@ -145,16 +159,17 @@ class AIAnalyzer:
         return AnalysisResult(
             content_id=content_item.content_id,
             sentiment="neutral",
-            sentiment_score=0.5,
+            sentiment_score=0.0,  # 默认中性评分
             summary="分析失败，无法生成总结",
             keywords=[],
             category="其他",
-            relevance_score=0.5,
+            relevance_score=0.0,  # 默认无相关性
             key_comment_ids=[],
             analysis_timestamp=int(time.time() * 1000),
             model_version=self.config["model"],
             content_length=content_item.get_content_length(),
-            comment_count=len(content_item.comments)
+            comment_count=len(content_item.comments),
+            source_keyword=""  # 默认无源关键词
         )
     
     def analyze_batch(self, content_items: List[ContentItem], retry_count: int = 0) -> List[AnalysisResult]:
