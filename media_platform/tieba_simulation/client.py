@@ -62,7 +62,7 @@ class TiebaSimulationClient(AbstractApiClient):
             # 构建搜索URL - 使用URL编码确保中文关键词正确传递
             import urllib.parse
             encoded_keyword = urllib.parse.quote(keyword.encode('gbk'))
-            search_url = f"{self._host}/f/search/res?isnew=1&kw=&qw={encoded_keyword}&rn=10&un=&only_thread=0&sm=1&sd=&ed=&pn={page}"
+            search_url = f"{self._host}/f/search/res?isnew=1&kw=&qw={encoded_keyword}&rn=10&un=&only_thread=1&sm=1&sd=&ed=&pn={page}"
             utils.logger.info(f"[TiebaSimulationClient] 搜索URL: {search_url}")
             
             # 导航到搜索页面，使用更灵活的加载策略
@@ -122,6 +122,102 @@ class TiebaSimulationClient(AbstractApiClient):
             except:
                 raise DataFetchError(f"搜索帖子失败: {e}")
     
+    async def _extract_post_detail_from_page(self) -> Dict:
+        """从帖子详情页面提取内容"""
+        try:
+            # 等待页面加载完成
+            await self.playwright_page.wait_for_selector(".d_post_content, .core_reply_wrapper", timeout=5000)
+            
+            post_detail = {}
+            
+            # 提取帖子正文内容
+            content_selectors = [
+                ".d_post_content",           # 主要内容区域
+                ".core_reply_wrapper",       # 核心回复区域 
+                ".post_content",             # 帖子内容
+                ".content",                  # 通用内容选择器
+            ]
+            
+            for selector in content_selectors:
+                try:
+                    content_element = await self.playwright_page.query_selector(selector)
+                    if content_element:
+                        content_text = await content_element.text_content()
+                        if content_text and content_text.strip():
+                            post_detail['content'] = content_text.strip()
+                            utils.logger.debug(f"[TiebaSimulationClient] 使用选择器 {selector} 提取帖子正文")
+                            break
+                except Exception:
+                    continue
+            
+            # 提取作者信息
+            author_selectors = [
+                ".d_name a",                 # 作者名称链接
+                ".username",                 # 用户名
+                ".author",                   # 作者
+                ".p_author",                 # 帖子作者
+            ]
+            
+            for selector in author_selectors:
+                try:
+                    author_element = await self.playwright_page.query_selector(selector)
+                    if author_element:
+                        author_text = await author_element.text_content()
+                        if author_text and author_text.strip():
+                            post_detail['author'] = author_text.strip()
+                            break
+                except Exception:
+                    continue
+            
+            utils.logger.info(f"[TiebaSimulationClient] 页面解析提取帖子详情完成")
+            return post_detail
+            
+        except Exception as e:
+            utils.logger.warning(f"[TiebaSimulationClient] 页面解析帖子详情失败: {e}")
+            return {}
+    
+    async def _extract_post_comments_from_page(self) -> Dict:
+        """从帖子页面提取评论"""
+        try:
+            # 等待评论区域加载
+            await self.playwright_page.wait_for_selector(".l_reply, .core_reply", timeout=5000)
+            
+            comments = []
+            comment_selectors = [
+                ".l_reply",                  # 主要评论选择器
+                ".core_reply",               # 核心评论
+                ".reply_list .reply_item",   # 回复列表项
+            ]
+            
+            for selector in comment_selectors:
+                try:
+                    comment_elements = await self.playwright_page.query_selector_all(selector)
+                    if comment_elements:
+                        utils.logger.info(f"[TiebaSimulationClient] 使用选择器 {selector} 找到 {len(comment_elements)} 个评论")
+                        
+                        for element in comment_elements[:20]:  # 限制20个评论
+                            try:
+                                comment_text_element = await element.query_selector(".d_post_content, .reply_content, .content")
+                                if comment_text_element:
+                                    comment_text = await comment_text_element.text_content()
+                                    if comment_text and comment_text.strip():
+                                        comments.append({
+                                            'content': comment_text.strip(),
+                                            'comment_id': f"comment_{len(comments)+1}",
+                                        })
+                            except Exception:
+                                continue
+                        break
+                except Exception:
+                    continue
+            
+            utils.logger.info(f"[TiebaSimulationClient] 页面解析获得 {len(comments)} 个评论")
+            return {'comments': comments, 'has_more': len(comments) >= 20}
+            
+        except Exception as e:
+            utils.logger.warning(f"[TiebaSimulationClient] 页面解析评论失败: {e}")
+            return {'comments': [], 'has_more': False}
+    
     async def get_post_detail(self, post_id: str) -> Dict:
         """
         获取帖子详情（使用浏览器自动化+网络拦截）
@@ -147,8 +243,8 @@ class TiebaSimulationClient(AbstractApiClient):
             intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.POST_DETAIL)
             
             if not intercepted_data:
-                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到帖子详情数据: {post_id}")
-                return {}
+                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到帖子详情数据，尝试页面解析: {post_id}")
+                return await self._extract_post_detail_from_page()
             
             # 返回最新的详情数据
             latest_data = intercepted_data[-1]['data']
@@ -185,8 +281,8 @@ class TiebaSimulationClient(AbstractApiClient):
             intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.POST_COMMENTS)
             
             if not intercepted_data:
-                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到评论数据: {post_id}")
-                return {"has_more": False, "comments": []}
+                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到评论数据，尝试页面解析: {post_id}")
+                return await self._extract_post_comments_from_page()
             
             # 返回最新的评论数据
             latest_data = intercepted_data[-1]['data']

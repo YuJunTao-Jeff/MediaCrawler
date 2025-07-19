@@ -286,6 +286,89 @@ class TiebaSimulationCrawler(AbstractCrawler):
         """提取内容唯一ID"""
         return content.get("note_id", "")
     
+    async def handle_empty_page(self, keyword: str, page: int) -> bool:
+        """
+        处理空页面情况，对贴吧搜索更宽容
+        :param keyword: 关键词
+        :param page: 页码
+        :return: 是否继续爬取
+        """
+        # 贴吧搜索结果可能不连续，允许更多的空页面
+        if not hasattr(self, '_empty_page_count'):
+            self._empty_page_count = 0
+        
+        self._empty_page_count += 1
+        
+        # 贴吧允许连续5个空页面，因为搜索结果可能不连续
+        if self._empty_page_count >= 5:
+            utils.logger.info(f"[TiebaSimulationCrawler] 连续{self._empty_page_count}个空页面，停止爬取关键词: {keyword}")
+            return False
+        
+        utils.logger.info(f"[TiebaSimulationCrawler] 空页面计数: {self._empty_page_count}/5, 继续爬取")
+        return True
+    
+    async def process_crawl_batch(self, keyword: str, page: int, content_list: List[Dict]) -> List[Dict]:
+        """处理爬取批次，支持获取帖子详情和评论"""
+        utils.logger.info(f"[TiebaSimulationCrawler] 开始批次处理: {len(content_list) if content_list else 0} 个帖子，评论获取开关: {config.ENABLE_GET_COMMENTS}")
+        
+        if not content_list:
+            return []
+        
+        processed_items = []
+        
+        for content in content_list:
+            try:
+                processed_content = content.copy()
+                
+                # 如果启用了评论获取，则获取帖子详情和评论
+                if config.ENABLE_GET_COMMENTS and processed_content.get('note_id'):
+                    post_id = processed_content['note_id']
+                    utils.logger.info(f"[TiebaSimulationCrawler] 获取帖子详情: {post_id}")
+                    
+                    try:
+                        # 获取帖子详情
+                        post_detail = await self.tieba_client.get_post_detail(post_id)
+                        if post_detail and post_detail.get('content'):
+                            # 更新详细内容，覆盖搜索结果的摘要
+                            processed_content['desc'] = post_detail.get('content', processed_content.get('desc', ''))
+                            processed_content['user_nickname'] = post_detail.get('author', processed_content.get('user_nickname', ''))
+                            utils.logger.debug(f"[TiebaSimulationCrawler] 更新帖子详情: {post_id}")
+                        
+                        # 获取帖子评论
+                        comments_result = await self.tieba_client.get_post_comments(post_id, 1)
+                        if comments_result and comments_result.get('comments'):
+                            comment_count = len(comments_result['comments'])
+                            processed_content['total_replay_num'] = comment_count
+                            utils.logger.debug(f"[TiebaSimulationCrawler] 获取评论数量: {comment_count}")
+                            
+                            # 保存评论数据
+                            for comment in comments_result['comments']:
+                                try:
+                                    await self._save_comment_data(comment)
+                                except Exception as e:
+                                    utils.logger.warning(f"[TiebaSimulationCrawler] 保存评论失败: {e}")
+                        
+                        # 模拟用户行为延迟
+                        await asyncio.sleep(random.uniform(0.5, 1.5))
+                        
+                    except Exception as e:
+                        utils.logger.warning(f"[TiebaSimulationCrawler] 获取帖子详情失败 {post_id}: {e}")
+                        # 详情获取失败不影响主帖保存
+                
+                processed_items.append(processed_content)
+                
+            except Exception as e:
+                utils.logger.error(f"[TiebaSimulationCrawler] 处理帖子数据失败: {e}")
+                continue
+        
+        utils.logger.info(f"[TiebaSimulationCrawler] 批次处理完成: {len(processed_items)}/{len(content_list)}")
+        
+        # 有内容时重置空页面计数
+        if processed_items:
+            self._empty_page_count = 0
+            
+        return processed_items
+    
     def extract_item_timestamp(self, content: Dict) -> int:
         """提取内容时间戳"""
         import time
