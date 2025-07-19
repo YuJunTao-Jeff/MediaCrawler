@@ -26,6 +26,7 @@ from store import tieba as tieba_store
 from tools import utils
 from tools.cdp_browser import CDPBrowserManager
 from var import crawler_type_var, source_keyword_var
+from model.m_baidu_tieba import TiebaNote
 
 from .client import TiebaSimulationClient
 from .exception import DataFetchError, BrowserAutomationError
@@ -283,11 +284,37 @@ class TiebaSimulationCrawler(AbstractCrawler):
     
     def extract_item_id(self, content: Dict) -> str:
         """提取内容唯一ID"""
-        return content.get("post_id", "")
+        return content.get("note_id", "")
     
     def extract_item_timestamp(self, content: Dict) -> int:
         """提取内容时间戳"""
-        return content.get("publish_time", 0)
+        import time
+        import re
+        from datetime import datetime
+        
+        publish_time = content.get("publish_time", "")
+        if not publish_time:
+            return int(time.time() * 1000)  # 返回当前时间戳
+        
+        try:
+            # 尝试解析贴吧时间格式：2024-05-28 15:33
+            if re.match(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}', str(publish_time)):
+                dt = datetime.strptime(str(publish_time), '%Y-%m-%d %H:%M')
+                return int(dt.timestamp() * 1000)
+            
+            # 如果已经是时间戳，直接返回
+            if isinstance(publish_time, (int, float)):
+                return int(publish_time)
+            
+            # 如果是字符串数字，转换为整数
+            if str(publish_time).isdigit():
+                return int(publish_time)
+                
+        except Exception as e:
+            utils.logger.debug(f"[TiebaSimulationCrawler] 时间戳解析失败: {e}")
+        
+        # 如果无法解析，返回当前时间戳
+        return int(time.time() * 1000)
     
     async def login(self) -> None:
         """登录处理"""
@@ -443,13 +470,15 @@ class TiebaSimulationCrawler(AbstractCrawler):
                 await self.context_page.goto("https://tieba.baidu.com", wait_until="domcontentloaded")
                 await asyncio.sleep(2)
             
-            # 模拟鼠标移动到搜索框
+            # 模拟鼠标移动到搜索框（基于Chrome MCP分析的真实页面结构）
             search_box_selectors = [
-                "input[name='kw']", 
-                ".search-input", 
+                "input.s_ipt#kw",          # 主要选择器：真实页面的搜索输入框
+                "input#kw",                # 备选：仅ID选择器
+                "input.s_ipt",             # 备选：仅class选择器
+                "input[name='kw']",        # 备选：name属性
+                ".search-input",           # 通用选择器（保留兼容性）
                 "#search-input",
-                "input[placeholder*='搜索']",
-                "input[id='kw']"
+                "input[placeholder*='搜索']"
             ]
             
             search_box_found = False
@@ -465,6 +494,7 @@ class TiebaSimulationCrawler(AbstractCrawler):
                             await self.context_page.type(selector, char, delay=random.randint(50, 200))
                         
                         search_box_found = True
+                        utils.logger.info(f"[TiebaSimulationCrawler] 成功找到并填写搜索框: {selector}")
                         break
                 except Exception as e:
                     utils.logger.debug(f"[TiebaSimulationCrawler] 搜索框 {selector} 不可用: {e}")
@@ -472,9 +502,52 @@ class TiebaSimulationCrawler(AbstractCrawler):
             
             if not search_box_found:
                 utils.logger.warning("[TiebaSimulationCrawler] 未找到可用的搜索框")
+                return
             
-            # 短暂停顿后执行搜索
+            # 短暂停顿后点击搜索按钮
             await asyncio.sleep(random.uniform(0.5, 1.5))
+            
+            # 查找并点击搜索按钮（基于Chrome MCP分析的真实页面结构）
+            search_btn_selectors = [
+                "input.s_btn#su",          # 主要选择器：真实页面的搜索按钮
+                "input#su",                # 备选：仅ID选择器  
+                "input.s_btn",             # 备选：仅class选择器
+                "input[type='submit']",    # 备选：type属性
+                ".search-btn",             # 通用选择器（保留兼容性）
+                "button[type='submit']",
+                "input[value='百度一下']"
+            ]
+            
+            search_btn_found = False
+            for btn_selector in search_btn_selectors:
+                try:
+                    btn_element = await self.context_page.query_selector(btn_selector)
+                    if btn_element and await btn_element.is_visible():
+                        # 模拟鼠标移动到搜索按钮
+                        await behavior_sim.simulate_mouse_movement(btn_selector)
+                        await asyncio.sleep(random.uniform(0.2, 0.5))
+                        
+                        # 点击搜索按钮
+                        await btn_element.click()
+                        utils.logger.info(f"[TiebaSimulationCrawler] 成功点击搜索按钮: {btn_selector}")
+                        search_btn_found = True
+                        
+                        # 等待搜索结果页面加载
+                        await asyncio.sleep(random.uniform(2, 4))
+                        break
+                except Exception as e:
+                    utils.logger.debug(f"[TiebaSimulationCrawler] 搜索按钮 {btn_selector} 不可用: {e}")
+                    continue
+            
+            if not search_btn_found:
+                utils.logger.warning("[TiebaSimulationCrawler] 未找到可用的搜索按钮，尝试按Enter键搜索")
+                # 备选方案：按Enter键触发搜索
+                try:
+                    await self.context_page.keyboard.press('Enter')
+                    await asyncio.sleep(random.uniform(2, 4))
+                    utils.logger.info("[TiebaSimulationCrawler] 使用Enter键触发搜索")
+                except Exception as e:
+                    utils.logger.error(f"[TiebaSimulationCrawler] Enter键搜索也失败: {e}")
             
         except Exception as e:
             utils.logger.warning(f"[TiebaSimulationCrawler] 模拟搜索行为失败: {e}")
@@ -518,11 +591,67 @@ class TiebaSimulationCrawler(AbstractCrawler):
     async def _save_post_data(self, post_data: Dict) -> None:
         """保存帖子数据"""
         try:
-            # 这里需要根据实际的存储模型来调整
-            # 假设tieba_store有对应的保存方法
-            await tieba_store.update_tieba_note(post_data)
+            # 添加source_keyword字段
+            post_data['source_keyword'] = source_keyword_var.get()
+            
+            # 数据清洗和验证
+            cleaned_data = self._clean_post_data(post_data)
+            
+            # 转换为TiebaNote对象
+            tieba_note = TiebaNote(**cleaned_data)
+            
+            # 保存到数据库
+            await tieba_store.update_tieba_note(tieba_note)
+            
+        except ValueError as e:
+            utils.logger.error(f"[TiebaSimulationCrawler] 数据验证失败: {e}")
+            utils.logger.debug(f"[TiebaSimulationCrawler] 问题数据: {post_data}")
         except Exception as e:
             utils.logger.error(f"[TiebaSimulationCrawler] 保存帖子数据失败: {e}")
+            utils.logger.debug(f"[TiebaSimulationCrawler] 问题数据: {post_data}")
+    
+    def _clean_post_data(self, post_data: Dict) -> Dict:
+        """清洗帖子数据，确保符合TiebaNote模型要求"""
+        cleaned = post_data.copy()
+        
+        # 确保必需字段存在且不为空
+        required_fields = ['note_id', 'title', 'note_url', 'tieba_name', 'tieba_link']
+        for field in required_fields:
+            if not cleaned.get(field):
+                if field == 'note_id':
+                    raise ValueError(f"必需字段 {field} 不能为空")
+                cleaned[field] = ""
+        
+        # 限制字符串字段长度
+        string_limits = {
+            'title': 500,
+            'desc': 1000,
+            'note_url': 1000,
+            'publish_time': 50,
+            'user_link': 1000,
+            'user_nickname': 100,
+            'user_avatar': 1000,
+            'tieba_name': 100,
+            'tieba_link': 1000,
+            'ip_location': 100,
+            'source_keyword': 100
+        }
+        
+        for field, limit in string_limits.items():
+            if field in cleaned and isinstance(cleaned[field], str):
+                if len(cleaned[field]) > limit:
+                    cleaned[field] = cleaned[field][:limit]
+        
+        # 确保数值字段为整数
+        numeric_fields = ['total_replay_num', 'total_replay_page']
+        for field in numeric_fields:
+            if field in cleaned:
+                try:
+                    cleaned[field] = int(cleaned[field]) if cleaned[field] else 0
+                except (ValueError, TypeError):
+                    cleaned[field] = 0
+        
+        return cleaned
     
     async def _save_comment_data(self, comment_data: Dict) -> None:
         """保存评论数据"""

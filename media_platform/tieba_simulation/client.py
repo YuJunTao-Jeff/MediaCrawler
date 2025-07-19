@@ -19,7 +19,7 @@ from base.base_crawler import AbstractApiClient
 from tools import utils
 
 from .field import InterceptType, SearchSortType, SearchNoteType
-from .help import NetworkInterceptor, UserBehaviorSimulator, parse_post_info_from_response, format_search_params
+from .help import NetworkInterceptor, UserBehaviorSimulator, parse_post_info_from_response
 from .exception import DataFetchError
 
 
@@ -51,14 +51,19 @@ class TiebaSimulationClient(AbstractApiClient):
         """
         通过关键词搜索帖子（使用浏览器自动化+网络拦截）
         """
+        # 标记暂未使用的参数
+        _ = sort, note_type
         utils.logger.info(f"[TiebaSimulationClient] 开始搜索关键词: {keyword}, 页码: {page}")
         
         try:
             # 设置网络拦截
             await self.network_interceptor.setup_interception()
             
-            # 构建搜索URL
-            search_url = f"{self._host}/f/search/res?isnew=1&kw=&qw={keyword}&rn=10&un=&only_thread=0&sm=1&sd=&ed=&pn={page}"
+            # 构建搜索URL - 使用URL编码确保中文关键词正确传递
+            import urllib.parse
+            encoded_keyword = urllib.parse.quote(keyword.encode('gbk'))
+            search_url = f"{self._host}/f/search/res?isnew=1&kw=&qw={encoded_keyword}&rn=10&un=&only_thread=0&sm=1&sd=&ed=&pn={page}"
+            utils.logger.info(f"[TiebaSimulationClient] 搜索URL: {search_url}")
             
             # 导航到搜索页面，使用更灵活的加载策略
             try:
@@ -83,19 +88,31 @@ class TiebaSimulationClient(AbstractApiClient):
                 utils.logger.debug(f"[TiebaSimulationClient] 等待{wait_time}秒后检查拦截数据...")
             else:
                 # 如果没有拦截到数据，尝试从页面直接提取
+                utils.logger.info("[TiebaSimulationClient] 未拦截到网络数据，开始页面直接提取")
                 intercepted_data = await self._extract_data_from_page()
             
-            if not intercepted_data:
-                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到搜索数据，尝试直接解析页面: {keyword}")
+            # 检查是否拦截到有效的搜索数据
+            valid_search_data = []
+            if isinstance(intercepted_data, list) and intercepted_data:
+                utils.logger.info(f"[TiebaSimulationClient] 获取到网络拦截数据，数量: {len(intercepted_data)}")
+                
+                # 过滤出真正的搜索结果数据
+                for item in intercepted_data:
+                    url = item.get('url', '')
+                    if '/f/search/res' in url and item.get('data'):
+                        valid_search_data.append(item)
+                        utils.logger.info(f"[TiebaSimulationClient] 找到有效搜索数据: {url[:100]}")
+            
+            if valid_search_data:
+                # 使用最新的搜索数据
+                latest_data = valid_search_data[-1].get('data', {})
+                parsed_result = parse_post_info_from_response(latest_data)
+                utils.logger.info(f"[TiebaSimulationClient] 网络解析结果: {parsed_result}")
+                return parsed_result
+            else:
+                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到有效搜索数据，尝试直接解析页面: {keyword}")
                 # 如果网络拦截失败，尝试直接从页面解析
                 return await self._parse_page_content()
-            
-            # 解析最新的搜索结果
-            if isinstance(intercepted_data, list) and intercepted_data:
-                latest_data = intercepted_data[-1].get('data', {})
-                return parse_post_info_from_response(latest_data)
-            else:
-                return {'posts': []}
             
         except Exception as e:
             utils.logger.error(f"[TiebaSimulationClient] 搜索失败 {keyword}: {e}")
@@ -327,18 +344,211 @@ class TiebaSimulationClient(AbstractApiClient):
         try:
             # 尝试等待更长时间，让页面充分加载
             await asyncio.sleep(3)
-            return []
+            
+            # 基于Chrome MCP分析的真实页面结构进行数据提取
+            posts_data = []
+            
+            # 检查当前页面是否为搜索结果页面
+            current_url = self.playwright_page.url
+            if "search/res" not in current_url:
+                utils.logger.warning(f"[TiebaSimulationClient] 当前页面不是搜索结果页面: {current_url}")
+                return []
+                
+            # 等待搜索结果容器加载
+            try:
+                await self.playwright_page.wait_for_selector(".s_post_list, .s_post", timeout=5000)
+                utils.logger.info("[TiebaSimulationClient] 找到搜索结果容器")
+            except:
+                utils.logger.warning("[TiebaSimulationClient] 搜索结果容器未找到，打印页面内容进行调试")
+                # 打印当前页面标题和URL
+                current_url = self.playwright_page.url
+                page_title = await self.playwright_page.title()
+                utils.logger.info(f"[TiebaSimulationClient] 当前页面: {page_title} - {current_url}")
+                
+                # 检查页面是否有内容
+                page_content = await self.playwright_page.content()
+                utils.logger.info(f"[TiebaSimulationClient] 页面内容长度: {len(page_content)}")
+                
+                # 检查是否有常见的错误页面标识
+                if "页面不存在" in page_content or "404" in page_content:
+                    utils.logger.error("[TiebaSimulationClient] 页面不存在或404错误")
+                elif "验证" in page_content or "security" in page_content.lower():
+                    utils.logger.error("[TiebaSimulationClient] 可能遇到安全验证页面")
+                
+            # 基于真实页面结构提取帖子数据
+            post_selectors = [
+                ".s_post",           # 主要选择器：搜索结果中的帖子
+                ".result-op",        # 备选选择器
+                ".c-container",      # 通用容器选择器
+                "[class*='post']"    # 包含post的class
+            ]
+            
+            for selector in post_selectors:
+                try:
+                    post_elements = await self.playwright_page.query_selector_all(selector)
+                    if post_elements:
+                        utils.logger.info(f"[TiebaSimulationClient] 使用选择器 {selector} 找到 {len(post_elements)} 个帖子元素")
+                        
+                        for element in post_elements[:10]:  # 限制处理前10个元素
+                            try:
+                                post_data = await self._extract_post_from_element(element)
+                                if post_data:
+                                    posts_data.append(post_data)
+                            except Exception as e:
+                                utils.logger.debug(f"[TiebaSimulationClient] 提取单个帖子失败: {e}")
+                                continue
+                        break
+                except Exception as e:
+                    utils.logger.debug(f"[TiebaSimulationClient] 选择器 {selector} 失败: {e}")
+                    continue
+                    
+            utils.logger.info(f"[TiebaSimulationClient] 页面直接提取获得 {len(posts_data)} 个帖子")
+            return posts_data
+            
         except Exception as e:
             utils.logger.warning(f"[TiebaSimulationClient] 直接提取数据失败: {e}")
             return []
     
+    async def _extract_post_from_element(self, element) -> Optional[Dict]:
+        """从单个帖子元素中提取数据（基于Chrome MCP分析的真实贴吧搜索结果页面结构）"""
+        try:
+            post_data = {}
+            
+            # 基于真实页面结构：<span class="p_title"><a>标题</a></span>
+            title_element = await element.query_selector('.p_title a')
+            if not title_element:
+                # 备选选择器
+                title_element = await element.query_selector('a[href*="/p/"]')
+            
+            if not title_element:
+                utils.logger.debug("[TiebaSimulationClient] 未找到标题元素")
+                return None
+            
+            # 提取标题和链接
+            title = await title_element.text_content()
+            href = await title_element.get_attribute('href')
+            
+            if not title or not title.strip() or not href:
+                utils.logger.debug("[TiebaSimulationClient] 标题或链接为空")
+                return None
+            
+            post_data['title'] = title.strip()
+            
+            # 标准化URL
+            if href.startswith('/'):
+                post_data['note_url'] = f"https://tieba.baidu.com{href}"
+            elif href.startswith('http'):
+                post_data['note_url'] = href
+            else:
+                utils.logger.debug(f"[TiebaSimulationClient] 无效的链接格式: {href}")
+                return None
+            
+            # 提取帖子ID - 优先从data-tid属性获取
+            post_id = await title_element.get_attribute('data-tid')
+            if not post_id and '/p/' in href:
+                # 从URL中提取帖子ID
+                post_id = href.split('/p/')[-1].split('?')[0].split('#')[0]
+            
+            if not post_id or not post_id.isdigit():
+                utils.logger.debug(f"[TiebaSimulationClient] 无效的帖子ID: {post_id}")
+                return None
+            
+            post_data['note_id'] = post_id
+            
+            # 提取内容摘要 - 基于真实结构：<div class="p_content">内容</div>
+            desc_element = await element.query_selector('.p_content')
+            if desc_element:
+                desc_text = await desc_element.text_content()
+                if desc_text and desc_text.strip():
+                    post_data['desc'] = desc_text.strip()
+            
+            # 提取贴吧信息 - 基于真实结构：<a class="p_forum" href="/f?kw=xxx">
+            tieba_element = await element.query_selector('.p_forum')
+            if not tieba_element:
+                # 备选选择器
+                tieba_element = await element.query_selector('a[href*="/f?kw="]')
+            
+            if tieba_element:
+                tieba_text = await tieba_element.text_content()
+                tieba_href = await tieba_element.get_attribute('href')
+                if tieba_text and tieba_text.strip():
+                    post_data['tieba_name'] = tieba_text.strip()
+                    if tieba_href:
+                        if tieba_href.startswith('/'):
+                            post_data['tieba_link'] = f"https://tieba.baidu.com{tieba_href}"
+                        else:
+                            post_data['tieba_link'] = tieba_href
+                
+                # 尝试从data-fid属性获取贴吧ID
+                fid = await tieba_element.get_attribute('data-fid')
+                if fid:
+                    post_data['tieba_id'] = fid
+            
+            # 提取用户信息 - 查找包含/home/main的链接
+            user_element = await element.query_selector('a[href*="/home/main"]')
+            if user_element:
+                user_text = await user_element.text_content()
+                user_href = await user_element.get_attribute('href')
+                if user_text and user_text.strip():
+                    post_data['user_nickname'] = user_text.strip()
+                if user_href:
+                    if user_href.startswith('/'):
+                        post_data['user_link'] = f"https://tieba.baidu.com{user_href}"
+                    else:
+                        post_data['user_link'] = user_href
+            
+            # 提取时间信息 - 基于真实结构：<font class="p_green p_date">时间</font>
+            time_element = await element.query_selector('.p_date')
+            if not time_element:
+                # 备选选择器
+                time_element = await element.query_selector('.p_green')
+            
+            if time_element:
+                time_text = await time_element.text_content()
+                if time_text and time_text.strip():
+                    # 处理时间格式，确保数据库兼容
+                    time_clean = time_text.strip()
+                    # 限制时间字段长度，避免数据库截断
+                    if len(time_clean) > 50:  # 假设数据库字段长度限制
+                        time_clean = time_clean[:50]
+                    post_data['publish_time'] = time_clean
+            
+            # 设置必需的默认值
+            post_data.setdefault('desc', "")
+            post_data.setdefault('publish_time', "")
+            post_data.setdefault('tieba_name', "")
+            post_data.setdefault('tieba_link', "")
+            post_data.setdefault('user_link', "")
+            post_data.setdefault('user_nickname', "")
+            post_data.setdefault('user_avatar', "")
+            post_data.setdefault('total_replay_num', 0)
+            post_data.setdefault('total_replay_page', 0)
+            post_data.setdefault('ip_location', "")
+            post_data.setdefault('source_keyword', "")
+            
+            # 验证提取的数据完整性
+            if not post_data.get('note_id') or not post_data.get('title'):
+                utils.logger.warning(f"[TiebaSimulationClient] 提取的帖子数据不完整，跳过")
+                return None
+                
+            utils.logger.debug(f"[TiebaSimulationClient] 成功提取帖子: {post_data.get('title', '')[:30]}...")
+            return post_data
+                
+        except Exception as e:
+            utils.logger.warning(f"[TiebaSimulationClient] 提取帖子元素数据失败: {e}")
+            utils.logger.debug(f"[TiebaSimulationClient] 错误详情: {e.__class__.__name__}: {str(e)}")
+            return None
+    
     async def _parse_page_content(self) -> Dict:
         """直接解析页面内容"""
         try:
-            # 简单的页面内容解析逻辑
-            # 这里可以根据实际需要添加更复杂的解析逻辑
             utils.logger.info("[TiebaSimulationClient] 使用页面直接解析模式")
-            return {'posts': []}
+            
+            # 使用已有的数据提取方法
+            posts_data = await self._extract_data_from_page()
+            
+            return {'posts': posts_data}
+            
         except Exception as e:
             utils.logger.error(f"[TiebaSimulationClient] 页面内容解析失败: {e}")
             return {'posts': []}
@@ -348,5 +558,7 @@ class TiebaSimulationClient(AbstractApiClient):
         发送HTTP请求（适配抽象方法）
         注意：贴吧模拟爬虫主要通过浏览器自动化获取数据，此方法仅为兼容性
         """
+        # 标记参数为已使用以避免警告
+        _ = method, url, kwargs
         utils.logger.warning("[TiebaSimulationClient] 贴吧模拟爬虫主要通过浏览器自动化获取数据")
         return {}
