@@ -25,6 +25,7 @@ class XhsNote(Base):
     desc = Column(LONGTEXT)
     add_ts = Column(BigInteger)
     analysis_info = Column(JSON)
+    source_keyword = Column(String(255), default='')
 
 class XhsNoteComment(Base):
     __tablename__ = 'xhs_note_comment'
@@ -44,6 +45,7 @@ class DouyinAweme(Base):
     desc = Column(LONGTEXT)
     add_ts = Column(BigInteger)
     analysis_info = Column(JSON)
+    source_keyword = Column(String(255), default='')
 
 class DouyinAwemeComment(Base):
     __tablename__ = 'douyin_aweme_comment'
@@ -63,6 +65,7 @@ class BilibiliVideo(Base):
     desc = Column(LONGTEXT)
     add_ts = Column(BigInteger)
     analysis_info = Column(JSON)
+    source_keyword = Column(String(255), default='')
 
 class BilibiliVideoComment(Base):
     __tablename__ = 'bilibili_video_comment'
@@ -81,6 +84,7 @@ class WeiboNote(Base):
     content = Column(LONGTEXT)
     add_ts = Column(BigInteger)
     analysis_info = Column(JSON)
+    source_keyword = Column(String(255), default='')
 
 class WeiboNoteComment(Base):
     __tablename__ = 'weibo_note_comment'
@@ -100,6 +104,7 @@ class KuaishouVideo(Base):
     desc = Column(LONGTEXT)
     add_ts = Column(BigInteger)
     analysis_info = Column(JSON)
+    source_keyword = Column(String(255), default='')
 
 class KuaishouVideoComment(Base):
     __tablename__ = 'kuaishou_video_comment'
@@ -119,6 +124,7 @@ class TiebaNote(Base):
     desc = Column(LONGTEXT)
     add_ts = Column(BigInteger)
     analysis_info = Column(JSON)
+    source_keyword = Column(String(255), default='')
 
 class TiebaComment(Base):
     __tablename__ = 'tieba_comment'
@@ -138,6 +144,7 @@ class ZhihuContent(Base):
     desc = Column(LONGTEXT)
     add_ts = Column(BigInteger)
     analysis_info = Column(JSON)
+    source_keyword = Column(String(255), default='')
 
 class ZhihuComment(Base):
     __tablename__ = 'zhihu_comment'
@@ -218,13 +225,19 @@ class DatabaseManager:
                 content = " ".join(content_parts) if content_parts else ""
                 content_id = getattr(row, model_info['id_field'])
                 
+                # 获取源关键词
+                source_keyword = ""
+                if hasattr(row, 'source_keyword') and row.source_keyword:
+                    source_keyword = row.source_keyword
+                
                 content_item = ContentItem(
                     content_id=content_id,
                     title=title,
                     content=content,
                     comments=[],
                     platform=platform,
-                    content_length=len(content)
+                    content_length=len(content),
+                    source_keyword=source_keyword
                 )
                 content_items.append(content_item)
             
@@ -285,13 +298,19 @@ class DatabaseManager:
                         'content': comment.content
                     })
             
+            # 获取源关键词
+            source_keyword = ""
+            if hasattr(main_content, 'source_keyword') and main_content.source_keyword:
+                source_keyword = main_content.source_keyword
+            
             content_item = ContentItem(
                 content_id=content_id,
                 title=title,
                 content=content,
                 comments=comment_list,
                 platform=platform,
-                content_length=len(content) + sum(len(c['content']) for c in comment_list)
+                content_length=len(content) + sum(len(c['content']) for c in comment_list),
+                source_keyword=source_keyword
             )
             
             return content_item
@@ -306,7 +325,8 @@ class DatabaseManager:
                 content="",
                 comments=[],
                 platform=platform,
-                content_length=0
+                content_length=0,
+                source_keyword=""
             )
         finally:
             session.close()
@@ -327,7 +347,8 @@ class DatabaseManager:
                     content="",
                     comments=[],
                     platform=platform,
-                    content_length=0
+                    content_length=0,
+                    source_keyword=""
                 )
                 content_items.append(content_item)
         

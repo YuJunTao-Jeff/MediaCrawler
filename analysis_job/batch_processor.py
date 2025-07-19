@@ -70,8 +70,20 @@ class BatchProcessor:
                 logger.info(f"处理批次 {i}/{len(batches)}: {len(batch.content_items)} 条内容")
                 
                 try:
+                    # 从批次内容中提取所有的源关键词
+                    source_keywords_set = set()
+                    for item in batch.content_items:
+                        if item.source_keyword:
+                            source_keywords_set.add(item.source_keyword)
+                    
+                    # 如果有源关键词就使用，否则回退到配置文件中的关键词
+                    if source_keywords_set:
+                        source_keywords = ",".join(source_keywords_set)
+                    else:
+                        source_keywords = KEYWORDS
+                    
                     # 分析批次
-                    results = self.analyzer.analyze_batch(batch.content_items, KEYWORDS)
+                    results = self.analyzer.analyze_batch(batch.content_items, source_keywords)
                     
                     # 批量更新数据库
                     updated_count = self.db_manager.batch_update_analysis_results(platform, results)

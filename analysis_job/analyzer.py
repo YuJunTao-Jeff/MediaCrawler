@@ -45,11 +45,11 @@ class AIAnalyzer:
    - 中性内容：-0.1到0.1（如中性描述、客观陈述）
    - 正面内容：0.1到0.6（如满意、认可）
    - 极正面内容：0.7到1（如强烈推荐、赞美）
-3. 内容总结：用1-2句话总结内容核心要点
+3. 内容总结：用3-5句话总结内容核心要点
 4. 关键词提取：提取3-5个最重要的关键词
 5. 内容分类：对内容进行分类（如：产品评价、服务体验、价格讨论、使用教程、问题反馈等）
 6. 相关性评分：评估内容与源关键词的相关性（0-1之间，源关键词为：{source_keywords}）
-7. 重点评论：如果有评论，识别最重要的评论ID（最多3个）
+7. 重点评论：如果有评论，识别最重要的评论ID
 
 请严格按照以下JSON格式返回结果，不要包含任何其他文字："""
         
@@ -150,7 +150,7 @@ class AIAnalyzer:
                     model_version=self.config["model"],
                     content_length=content_item.get_content_length(),
                     comment_count=len(content_item.comments),
-                    source_keyword=getattr(self, '_current_source_keywords', "")
+                    source_keyword=content_item.source_keyword or getattr(self, '_current_source_keywords', "")
                 )
                 
                 # 添加结果
@@ -186,7 +186,7 @@ class AIAnalyzer:
             model_version=self.config["model"],
             content_length=content_item.get_content_length(),
             comment_count=len(content_item.comments),
-            source_keyword=""  # 默认无源关键词
+            source_keyword=content_item.source_keyword  # 使用内容项的源关键词
         )
     
     def analyze_batch(self, content_items: List[ContentItem], source_keywords: str = "", retry_count: int = 0) -> List[AnalysisResult]:

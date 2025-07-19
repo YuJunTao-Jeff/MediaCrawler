@@ -18,6 +18,7 @@ class ContentItem:
     comments: List[Dict[str, Any]] = None
     create_time: int = 0
     content_length: int = 0
+    source_keyword: str = ""  # 源关键词
     
     def __post_init__(self):
         if self.comments is None:
