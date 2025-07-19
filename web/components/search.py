@@ -14,12 +14,27 @@ def render_search_box() -> str:
     """渲染搜索框组件"""
     st.subheader("🔎 内容搜索")
     
+    # 处理待添加的关键词
+    initial_value = ""
+    if 'pending_keyword' in st.session_state:
+        current_keywords = st.session_state.get('search_keywords', '')
+        pending_keyword = st.session_state.pending_keyword
+        if pending_keyword not in current_keywords:
+            initial_value = f"{current_keywords} {pending_keyword}".strip()
+        else:
+            initial_value = current_keywords
+        # 清除pending_keyword
+        del st.session_state.pending_keyword
+    else:
+        initial_value = st.session_state.get('search_keywords', '')
+    
     # 搜索框
     col1, col2 = st.columns([4, 1])
     
     with col1:
         keywords = st.text_input(
             "搜索关键词",
+            value=initial_value,
             placeholder="输入搜索关键词，支持多个关键词用空格分隔",
             key="search_keywords",
             label_visibility="collapsed"
@@ -71,15 +86,13 @@ def render_keyword_suggestions() -> List[str]:
     keyword_cols = st.columns(4)
     selected_keywords = []
     
+    # 使用session_state来处理关键词点击，避免直接修改widget的session_state
     for i, keyword in enumerate(hot_keywords):
         with keyword_cols[i % 4]:
             if st.button(f"#{keyword}", key=f"keyword_{i}", use_container_width=True):
-                # 将关键词添加到搜索框
-                current_keywords = st.session_state.get('search_keywords', '')
-                if keyword not in current_keywords:
-                    new_keywords = f"{current_keywords} {keyword}".strip()
-                    st.session_state.search_keywords = new_keywords
-                    st.rerun()
+                # 将选中的关键词保存到session_state中，在下次渲染时处理
+                st.session_state.pending_keyword = keyword
+                st.rerun()
     
     return selected_keywords
 
