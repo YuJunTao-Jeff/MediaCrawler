@@ -322,7 +322,7 @@ def main():
                 total_stats.processed_items += stats.processed_items
                 total_stats.success_items += stats.success_items
                 total_stats.failed_items += stats.failed_items
-                total_stats.skip_items += stats.skip_items
+                total_stats.skipped_items += stats.skipped_items
                 
                 if len(platforms) > 1:
                     print()  # 多平台时添加空行分隔
