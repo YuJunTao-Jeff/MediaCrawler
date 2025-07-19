@@ -388,6 +388,24 @@ TIEBA_LOGIN_PHONE = ""
 # 贴吧Cookie字符串（Cookie登录时使用）
 TIEBA_COOKIE_STR = ""
 
+# ==================== 贴吧模拟爬虫超时配置 ====================
+# 页面加载超时配置（毫秒）
+TIEBA_PAGE_LOAD_TIMEOUT = 30000         # 页面加载基础超时
+TIEBA_DOM_LOAD_TIMEOUT = 15000          # DOM加载超时
+TIEBA_NETWORK_IDLE_TIMEOUT = 30000      # 网络空闲超时
+TIEBA_DETAIL_PAGE_TIMEOUT = 40000       # 详情页特殊超时
+TIEBA_SEARCH_PAGE_TIMEOUT = 20000       # 搜索页超时
+
+# 重试配置
+TIEBA_MAX_RETRY_COUNT = 3               # 最大重试次数
+TIEBA_RETRY_DELAY_BASE = 2              # 重试基础延迟（秒）
+TIEBA_RETRY_DELAY_INCREMENT = 2         # 重试延迟递增（秒）
+
+# 网络等待配置
+TIEBA_NETWORK_WAIT_BASE = 2             # 网络等待基础时间（秒）
+TIEBA_NETWORK_WAIT_MAX = 8              # 网络等待最大时间（秒）
+TIEBA_ADAPTIVE_WAIT_ENABLED = True      # 启用自适应等待
+
 # ==================== 新闻平台配置 ====================
 # Tavily搜索引擎API密钥
 TAVILY_API_KEY = "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"

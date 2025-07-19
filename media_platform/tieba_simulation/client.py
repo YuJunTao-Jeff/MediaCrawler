@@ -11,12 +11,13 @@
 
 import asyncio
 import random
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from playwright.async_api import Page
 
 from base.base_crawler import AbstractApiClient
 from tools import utils
+import config
 
 from .field import InterceptType, SearchSortType, SearchNoteType
 from .help import NetworkInterceptor, UserBehaviorSimulator, parse_post_info_from_response
@@ -65,28 +66,38 @@ class TiebaSimulationClient(AbstractApiClient):
             search_url = f"{self._host}/f/search/res?isnew=1&kw=&qw={encoded_keyword}&rn=10&un=&only_thread=1&sm=1&sd=&ed=&pn={page}"
             utils.logger.info(f"[TiebaSimulationClient] 搜索URL: {search_url}")
             
-            # 导航到搜索页面，使用更灵活的加载策略
+            # 导航到搜索页面，使用渐进式加载策略
+            search_timeout = getattr(config, 'TIEBA_SEARCH_PAGE_TIMEOUT', 20000)
             try:
-                await self.playwright_page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
+                await self.playwright_page.goto(search_url, wait_until="domcontentloaded", timeout=search_timeout)
                 # 等待页面内容加载
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
             except Exception as e:
-                utils.logger.warning(f"[TiebaSimulationClient] 首次加载失败，尝试重新加载: {e}")
-                await self.playwright_page.goto(search_url, wait_until="load", timeout=30000)
+                if "timeout" in str(e).lower():
+                    utils.logger.debug(f"[TiebaSimulationClient] DOM加载超时，尝试基础加载策略")
+                    try:
+                        page_timeout = getattr(config, 'TIEBA_PAGE_LOAD_TIMEOUT', 30000)
+                        await self.playwright_page.goto(search_url, wait_until="load", timeout=page_timeout)
+                    except Exception as e2:
+                        if "timeout" in str(e2).lower():
+                            utils.logger.debug(f"[TiebaSimulationClient] 基础加载也超时，使用兜底策略")
+                            await self.playwright_page.goto(search_url, timeout=page_timeout)
+                        else:
+                            raise e2
+                else:
+                    raise e
             
             # 模拟用户阅读行为
             await self.behavior_simulator.simulate_reading_behavior(2, 4)
             await self.behavior_simulator.simulate_mouse_movement()
             
-            # 等待网络请求完成并获取拦截数据
-            # 渐进式等待，检查是否有数据拦截
-            for wait_time in [1, 2, 3, 5]:
-                await asyncio.sleep(wait_time)
-                intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.SEARCH_POSTS)
-                if intercepted_data:
-                    break
-                utils.logger.debug(f"[TiebaSimulationClient] 等待{wait_time}秒后检查拦截数据...")
-            else:
+            # 使用自适应网络等待
+            await self._adaptive_network_wait_for_search()
+            
+            # 获取拦截数据
+            intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.SEARCH_POSTS)
+            
+            if not intercepted_data:
                 # 如果没有拦截到数据，尝试从页面直接提取
                 utils.logger.info("[TiebaSimulationClient] 未拦截到网络数据，开始页面直接提取")
                 intercepted_data = await self._extract_data_from_page()
@@ -126,14 +137,14 @@ class TiebaSimulationClient(AbstractApiClient):
         """从帖子详情页面提取内容"""
         try:
             # 等待页面加载完成
-            await self.playwright_page.wait_for_selector(".d_post_content, .core_reply_wrapper", timeout=5000)
+            await self.playwright_page.wait_for_selector(".d_post_content, .l_post", timeout=5000)
             
             post_detail = {}
             
             # 提取帖子正文内容
             content_selectors = [
                 ".d_post_content",           # 主要内容区域
-                ".core_reply_wrapper",       # 核心回复区域 
+                ".l_post .d_post_content",   # 楼层内容区域 
                 ".post_content",             # 帖子内容
                 ".content",                  # 通用内容选择器
             ]
@@ -177,120 +188,351 @@ class TiebaSimulationClient(AbstractApiClient):
             return {}
     
     async def _extract_post_comments_from_page(self) -> Dict:
-        """从帖子页面提取评论"""
+        """从帖子页面提取楼层评论"""
         try:
-            # 等待评论区域加载
-            await self.playwright_page.wait_for_selector(".l_reply, .core_reply", timeout=5000)
+            # 等待帖子列表加载
+            await self.playwright_page.wait_for_selector(".l_post", timeout=5000)
             
             comments = []
-            comment_selectors = [
-                ".l_reply",                  # 主要评论选择器
-                ".core_reply",               # 核心评论
-                ".reply_list .reply_item",   # 回复列表项
-            ]
+            # 获取所有楼层（除了1楼主楼）
+            post_elements = await self.playwright_page.query_selector_all(".l_post")
             
-            for selector in comment_selectors:
+            utils.logger.info(f"[TiebaSimulationClient] 找到 {len(post_elements)} 个楼层")
+            
+            for i, element in enumerate(post_elements):
                 try:
-                    comment_elements = await self.playwright_page.query_selector_all(selector)
-                    if comment_elements:
-                        utils.logger.info(f"[TiebaSimulationClient] 使用选择器 {selector} 找到 {len(comment_elements)} 个评论")
+                    # 跳过1楼（主楼）
+                    if i == 0:
+                        continue
                         
-                        for element in comment_elements[:20]:  # 限制20个评论
-                            try:
-                                comment_text_element = await element.query_selector(".d_post_content, .reply_content, .content")
-                                if comment_text_element:
-                                    comment_text = await comment_text_element.text_content()
-                                    if comment_text and comment_text.strip():
-                                        comments.append({
-                                            'content': comment_text.strip(),
-                                            'comment_id': f"comment_{len(comments)+1}",
-                                        })
-                            except Exception:
-                                continue
-                        break
-                except Exception:
+                    # 提取楼层作者
+                    author_element = await element.query_selector(".p_author_name")
+                    author = ""
+                    if author_element:
+                        author = await author_element.text_content()
+                        author = author.strip() if author else ""
+                    
+                    # 提取楼层内容
+                    content_element = await element.query_selector(".d_post_content")
+                    if content_element:
+                        content = await content_element.text_content()
+                        if content and content.strip():
+                            # 提取楼层号
+                            floor_element = await element.query_selector(".tail-info")
+                            floor_num = i + 1  # 默认按顺序
+                            if floor_element:
+                                floor_text = await floor_element.text_content()
+                                if floor_text and "楼" in floor_text:
+                                    try:
+                                        floor_num = int(floor_text.replace("楼", "").strip())
+                                    except:
+                                        pass
+                            
+                            comments.append({
+                                'content': content.strip(),
+                                'comment_id': f"floor_{floor_num}",
+                                'author': author,
+                                'floor_num': floor_num,
+                            })
+                            
+                            # 限制评论数量
+                            if len(comments) >= 20:
+                                break
+                                
+                except Exception as e:
+                    utils.logger.debug(f"[TiebaSimulationClient] 解析第{i}楼失败: {e}")
                     continue
             
-            utils.logger.info(f"[TiebaSimulationClient] 页面解析获得 {len(comments)} 个评论")
+            utils.logger.info(f"[TiebaSimulationClient] 页面解析获得 {len(comments)} 个楼层评论")
             return {'comments': comments, 'has_more': len(comments) >= 20}
             
         except Exception as e:
-            utils.logger.warning(f"[TiebaSimulationClient] 页面解析评论失败: {e}")
+            utils.logger.warning(f"[TiebaSimulationClient] 页面解析楼层评论失败: {e}")
             return {'comments': [], 'has_more': False}
     
     async def get_post_detail(self, post_id: str) -> Dict:
         """
-        获取帖子详情（使用浏览器自动化+网络拦截）
+        获取帖子详情（使用浏览器自动化+网络拦截），支持渐进式加载和智能重试
         """
         utils.logger.info(f"[TiebaSimulationClient] 获取帖子详情: {post_id}")
         
+        # 使用智能重试机制
+        max_retries = getattr(config, 'TIEBA_MAX_RETRY_COUNT', 3)
+        
+        for attempt in range(max_retries):
+            try:
+                result = await self._get_post_detail_with_progressive_loading(post_id)
+                if result:  # 成功获取到数据
+                    return result
+                
+            except Exception as e:
+                is_timeout_error = "timeout" in str(e).lower() or "exceeded" in str(e).lower()
+                
+                if attempt < max_retries - 1:  # 不是最后一次尝试
+                    if is_timeout_error:
+                        # 对超时错误使用递增延迟重试
+                        delay_base = getattr(config, 'TIEBA_RETRY_DELAY_BASE', 2)
+                        delay_increment = getattr(config, 'TIEBA_RETRY_DELAY_INCREMENT', 2)
+                        delay = delay_base + (attempt * delay_increment)
+                        
+                        utils.logger.warning(f"[TiebaSimulationClient] 获取帖子详情超时 {post_id} (尝试 {attempt + 1}/{max_retries})，{delay}秒后重试")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        # 非超时错误，立即重试
+                        utils.logger.warning(f"[TiebaSimulationClient] 获取帖子详情失败 {post_id} (尝试 {attempt + 1}/{max_retries}): {e}")
+                        await asyncio.sleep(1)
+                        continue
+                else:
+                    # 最后一次尝试也失败了
+                    utils.logger.error(f"[TiebaSimulationClient] 获取帖子详情最终失败 {post_id}: {e}")
+                    raise DataFetchError(f"获取帖子详情失败: {e}")
+        
+        # 如果所有重试都没有返回结果，尝试页面解析作为最后手段
+        utils.logger.warning(f"[TiebaSimulationClient] 所有重试失败，尝试页面解析: {post_id}")
         try:
-            # 设置网络拦截
-            await self.network_interceptor.setup_interception()
-            
-            # 构建帖子详情URL
-            post_url = f"{self._host}/p/{post_id}"
-            
-            # 导航到帖子页面
-            await self.playwright_page.goto(post_url, wait_until="networkidle")
-            
-            # 模拟用户阅读行为
-            await self.behavior_simulator.simulate_reading_behavior(3, 6)
-            await self.behavior_simulator.simulate_mouse_movement()
-            
-            # 等待网络请求完成并获取拦截数据
-            await asyncio.sleep(2)
-            intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.POST_DETAIL)
-            
-            if not intercepted_data:
-                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到帖子详情数据，尝试页面解析: {post_id}")
-                return await self._extract_post_detail_from_page()
-            
+            return await self._extract_post_detail_from_page()
+        except Exception as e:
+            raise DataFetchError(f"获取帖子详情完全失败: {e}")
+    
+    async def _get_post_detail_with_progressive_loading(self, post_id: str) -> Dict:
+        """
+        使用渐进式加载策略获取帖子详情
+        """
+        # 设置网络拦截
+        await self.network_interceptor.setup_interception()
+        
+        # 构建帖子详情URL
+        post_url = f"{self._host}/p/{post_id}"
+        
+        # 渐进式加载策略：从宽松到严格
+        loading_strategies = [
+            ("domcontentloaded", getattr(config, 'TIEBA_DOM_LOAD_TIMEOUT', 15000)),
+            ("load", getattr(config, 'TIEBA_PAGE_LOAD_TIMEOUT', 30000)),
+            ("networkidle", getattr(config, 'TIEBA_NETWORK_IDLE_TIMEOUT', 30000)),
+            (None, getattr(config, 'TIEBA_DETAIL_PAGE_TIMEOUT', 40000))  # 最后兜底：无等待条件
+        ]
+        
+        for strategy_name, timeout_ms in loading_strategies:
+            try:
+                utils.logger.debug(f"[TiebaSimulationClient] 尝试加载策略: {strategy_name or 'none'}, 超时: {timeout_ms}ms")
+                
+                if strategy_name:
+                    await self.playwright_page.goto(post_url, wait_until=strategy_name, timeout=timeout_ms)
+                else:
+                    # 最后的兜底策略：没有等待条件，仅超时控制
+                    await self.playwright_page.goto(post_url, timeout=timeout_ms)
+                
+                # 页面加载成功，等待页面就绪
+                if await self._wait_for_page_ready():
+                    break
+                    
+            except Exception as e:
+                if "timeout" in str(e).lower() or "exceeded" in str(e).lower():
+                    utils.logger.debug(f"[TiebaSimulationClient] 加载策略 {strategy_name or 'none'} 超时，尝试下一个策略")
+                    continue
+                else:
+                    # 非超时错误，立即抛出
+                    raise e
+        else:
+            # 所有策略都失败了
+            raise DataFetchError(f"所有加载策略都失败了: {post_id}")
+        
+        # 模拟用户阅读行为
+        await self.behavior_simulator.simulate_reading_behavior(2, 4)  # 减少等待时间
+        await self.behavior_simulator.simulate_mouse_movement()
+        
+        # 自适应等待网络请求完成
+        await self._adaptive_network_wait()
+        
+        # 获取拦截数据
+        intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.POST_DETAIL)
+        
+        if intercepted_data:
             # 返回最新的详情数据
             latest_data = intercepted_data[-1]['data']
             return self._parse_post_detail(latest_data)
+        else:
+            # 如果没有拦截到数据，尝试页面解析
+            utils.logger.info(f"[TiebaSimulationClient] 未拦截到网络数据，尝试页面解析: {post_id}")
+            return await self._extract_post_detail_from_page()
+    
+    async def _wait_for_page_ready(self, timeout_ms: int = 5000) -> bool:
+        """
+        等待页面就绪，检查关键元素是否加载
+        """
+        ready_selectors = [
+            ".d_post_content",        # 帖子内容
+            ".core_reply_wrapper",    # 回复区域
+            ".j_thread_list",         # 线程列表
+            ".post_content",          # 帖子内容（备选）
+        ]
+        
+        try:
+            # 等待任意一个关键元素加载完成
+            for selector in ready_selectors:
+                try:
+                    await self.playwright_page.wait_for_selector(selector, timeout=timeout_ms)
+                    utils.logger.debug(f"[TiebaSimulationClient] 页面就绪，检测到元素: {selector}")
+                    return True
+                except:
+                    continue
+            
+            # 如果没有找到关键元素，检查页面是否至少有基本内容
+            page_title = await self.playwright_page.title()
+            if page_title and "贴吧" in page_title:
+                utils.logger.debug(f"[TiebaSimulationClient] 页面标题正常: {page_title}")
+                return True
+            
+            return False
             
         except Exception as e:
-            utils.logger.error(f"[TiebaSimulationClient] 获取帖子详情失败 {post_id}: {e}")
-            raise DataFetchError(f"获取帖子详情失败: {e}")
+            utils.logger.debug(f"[TiebaSimulationClient] 页面就绪检查失败: {e}")
+            return False
+    
+    async def _adaptive_network_wait(self) -> None:
+        """
+        自适应网络等待，根据是否拦截到数据动态调整等待时间
+        """
+        if not getattr(config, 'TIEBA_ADAPTIVE_WAIT_ENABLED', True):
+            # 如果没有启用自适应等待，使用固定等待时间
+            await asyncio.sleep(2)
+            return
+        
+        base_wait = getattr(config, 'TIEBA_NETWORK_WAIT_BASE', 2)
+        max_wait = getattr(config, 'TIEBA_NETWORK_WAIT_MAX', 8)
+        
+        # 渐进式等待，检查是否有数据拦截
+        for wait_time in [base_wait, base_wait * 2, max_wait]:
+            await asyncio.sleep(wait_time)
+            
+            # 检查是否拦截到了数据
+            intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.POST_DETAIL)
+            if intercepted_data:
+                utils.logger.debug(f"[TiebaSimulationClient] 在等待{wait_time}秒后检测到网络数据")
+                break
+                
+            utils.logger.debug(f"[TiebaSimulationClient] 等待{wait_time}秒后仍无网络数据，继续等待")
+        else:
+            utils.logger.debug(f"[TiebaSimulationClient] 网络等待结束，总计等待{sum([base_wait, base_wait * 2, max_wait])}秒")
+    
+    async def _adaptive_network_wait_for_search(self) -> None:
+        """
+        搜索专用的自适应网络等待，搜索页面通常响应更快
+        """
+        if not getattr(config, 'TIEBA_ADAPTIVE_WAIT_ENABLED', True):
+            # 如果没有启用自适应等待，使用固定等待时间
+            await asyncio.sleep(1)
+            return
+        
+        base_wait = 1  # 搜索页面等待时间更短
+        max_wait = 5
+        
+        # 渐进式等待，检查是否有数据拦截
+        for wait_time in [base_wait, 2, max_wait]:
+            await asyncio.sleep(wait_time)
+            
+            # 检查是否拦截到了数据
+            intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.SEARCH_POSTS)
+            if intercepted_data:
+                utils.logger.debug(f"[TiebaSimulationClient] 搜索在等待{wait_time}秒后检测到网络数据")
+                break
+                
+            utils.logger.debug(f"[TiebaSimulationClient] 搜索等待{wait_time}秒后仍无网络数据，继续等待")
+        else:
+            utils.logger.debug(f"[TiebaSimulationClient] 搜索网络等待结束，总计等待{sum([base_wait, 2, max_wait])}秒")
     
     async def get_post_comments(self, post_id: str, page: int = 1) -> Dict:
         """
-        获取帖子评论（使用浏览器自动化+网络拦截）
+        获取帖子评论（使用浏览器自动化+网络拦截），支持渐进式加载和智能重试
         """
         utils.logger.info(f"[TiebaSimulationClient] 获取帖子评论: {post_id}, 页码: {page}")
         
+        # 使用智能重试机制
+        max_retries = getattr(config, 'TIEBA_MAX_RETRY_COUNT', 3)
+        
+        for attempt in range(max_retries):
+            try:
+                result = await self._get_post_comments_with_progressive_loading(post_id, page)
+                if result:  # 成功获取到数据
+                    return result
+                    
+            except Exception as e:
+                is_timeout_error = "timeout" in str(e).lower() or "exceeded" in str(e).lower()
+                
+                if attempt < max_retries - 1:  # 不是最后一次尝试
+                    if is_timeout_error:
+                        # 对超时错误使用递增延迟重试
+                        delay_base = getattr(config, 'TIEBA_RETRY_DELAY_BASE', 2)
+                        delay_increment = getattr(config, 'TIEBA_RETRY_DELAY_INCREMENT', 2)
+                        delay = delay_base + (attempt * delay_increment)
+                        
+                        utils.logger.warning(f"[TiebaSimulationClient] 获取帖子评论超时 {post_id} (尝试 {attempt + 1}/{max_retries})，{delay}秒后重试")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        # 非超时错误，立即重试
+                        utils.logger.warning(f"[TiebaSimulationClient] 获取帖子评论失败 {post_id} (尝试 {attempt + 1}/{max_retries}): {e}")
+                        await asyncio.sleep(1)
+                        continue
+                else:
+                    # 最后一次尝试也失败了
+                    utils.logger.error(f"[TiebaSimulationClient] 获取帖子评论最终失败 {post_id}: {e}")
+                    raise DataFetchError(f"获取帖子评论失败: {e}")
+        
+        # 如果所有重试都没有返回结果，尝试页面解析作为最后手段
+        utils.logger.warning(f"[TiebaSimulationClient] 所有重试失败，尝试页面解析评论: {post_id}")
         try:
-            # 如果页面不在帖子详情页，先导航过去
-            current_url = self.playwright_page.url
-            if post_id not in current_url:
-                post_url = f"{self._host}/p/{post_id}"
-                await self.playwright_page.goto(post_url, wait_until="networkidle")
+            return await self._extract_post_comments_from_page()
+        except Exception as e:
+            # 评论获取失败不应该阻止主流程，返回空评论列表
+            utils.logger.warning(f"[TiebaSimulationClient] 获取评论完全失败，返回空评论列表: {e}")
+            return {'comments': [], 'has_more': False}
+    
+    async def _get_post_comments_with_progressive_loading(self, post_id: str, page: int = 1) -> Dict:
+        """
+        使用渐进式加载策略获取帖子评论
+        """
+        # 如果页面不在帖子详情页，先导航过去
+        current_url = self.playwright_page.url
+        if post_id not in current_url:
+            post_url = f"{self._host}/p/{post_id}"
             
-            # 设置网络拦截
-            await self.network_interceptor.setup_interception()
-            
-            # 翻页到指定页码
-            await self._navigate_to_comment_page(page)
-            
-            # 模拟用户阅读行为
-            await self.behavior_simulator.simulate_reading_behavior(2, 4)
-            
-            # 等待网络请求完成并获取拦截数据
-            await asyncio.sleep(2)
-            intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.POST_COMMENTS)
-            
-            if not intercepted_data:
-                utils.logger.warning(f"[TiebaSimulationClient] 未拦截到评论数据，尝试页面解析: {post_id}")
-                return await self._extract_post_comments_from_page()
-            
+            # 使用较快的加载策略导航到帖子页面
+            try:
+                await self.playwright_page.goto(post_url, wait_until="domcontentloaded", 
+                                              timeout=getattr(config, 'TIEBA_DOM_LOAD_TIMEOUT', 15000))
+            except Exception as e:
+                if "timeout" in str(e).lower():
+                    # 如果DOM加载超时，尝试无等待条件的加载
+                    utils.logger.debug(f"[TiebaSimulationClient] DOM加载超时，尝试基础加载")
+                    await self.playwright_page.goto(post_url, timeout=getattr(config, 'TIEBA_PAGE_LOAD_TIMEOUT', 30000))
+                else:
+                    raise e
+        
+        # 设置网络拦截
+        await self.network_interceptor.setup_interception()
+        
+        # 翻页到指定页码
+        await self._navigate_to_comment_page(page)
+        
+        # 模拟用户阅读行为（缩短时间）
+        await self.behavior_simulator.simulate_reading_behavior(1, 2)
+        
+        # 自适应等待网络请求完成
+        await self._adaptive_network_wait()
+        
+        # 获取拦截数据
+        intercepted_data = self.network_interceptor.get_intercepted_data(InterceptType.POST_COMMENTS)
+        
+        if intercepted_data:
             # 返回最新的评论数据
             latest_data = intercepted_data[-1]['data']
             return self._parse_comments_data(latest_data)
-            
-        except Exception as e:
-            utils.logger.error(f"[TiebaSimulationClient] 获取帖子评论失败 {post_id}: {e}")
-            raise DataFetchError(f"获取帖子评论失败: {e}")
+        else:
+            # 如果没有拦截到数据，尝试页面解析
+            utils.logger.info(f"[TiebaSimulationClient] 未拦截到评论网络数据，尝试页面解析: {post_id}")
+            return await self._extract_post_comments_from_page()
     
     async def get_user_info(self, user_id: str) -> Dict:
         """

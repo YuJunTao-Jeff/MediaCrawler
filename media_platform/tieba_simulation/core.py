@@ -26,7 +26,7 @@ from store import tieba as tieba_store
 from tools import utils
 from tools.cdp_browser import CDPBrowserManager
 from var import crawler_type_var, source_keyword_var
-from model.m_baidu_tieba import TiebaNote
+from model.m_baidu_tieba import TiebaNote, TiebaComment
 
 from .client import TiebaSimulationClient
 from .exception import DataFetchError, BrowserAutomationError
@@ -327,33 +327,62 @@ class TiebaSimulationCrawler(AbstractCrawler):
                     
                     try:
                         # 获取帖子详情
+                        utils.logger.debug(f"[TiebaSimulationCrawler] 开始获取帖子详情: {post_id}")
                         post_detail = await self.tieba_client.get_post_detail(post_id)
                         if post_detail and post_detail.get('content'):
                             # 更新详细内容，覆盖搜索结果的摘要
                             processed_content['desc'] = post_detail.get('content', processed_content.get('desc', ''))
                             processed_content['user_nickname'] = post_detail.get('author', processed_content.get('user_nickname', ''))
-                            utils.logger.debug(f"[TiebaSimulationCrawler] 更新帖子详情: {post_id}")
+                            utils.logger.info(f"[TiebaSimulationCrawler] 成功更新帖子详情: {post_id}")
+                        else:
+                            utils.logger.info(f"[TiebaSimulationCrawler] 帖子详情为空，保持原始数据: {post_id}")
                         
                         # 获取帖子评论
+                        utils.logger.debug(f"[TiebaSimulationCrawler] 开始获取帖子评论: {post_id}")
                         comments_result = await self.tieba_client.get_post_comments(post_id, 1)
                         if comments_result and comments_result.get('comments'):
                             comment_count = len(comments_result['comments'])
                             processed_content['total_replay_num'] = comment_count
-                            utils.logger.debug(f"[TiebaSimulationCrawler] 获取评论数量: {comment_count}")
+                            utils.logger.info(f"[TiebaSimulationCrawler] 成功获取评论数量: {comment_count}")
                             
                             # 保存评论数据
+                            saved_comments = 0
                             for comment in comments_result['comments']:
                                 try:
-                                    await self._save_comment_data(comment)
+                                    await self._save_comment_data(
+                                        comment, 
+                                        post_id, 
+                                        processed_content.get('note_url', ''),
+                                        processed_content.get('tieba_name', ''),
+                                        processed_content.get('tieba_link', '')
+                                    )
+                                    saved_comments += 1
                                 except Exception as e:
                                     utils.logger.warning(f"[TiebaSimulationCrawler] 保存评论失败: {e}")
+                            
+                            if saved_comments > 0:
+                                utils.logger.info(f"[TiebaSimulationCrawler] 成功保存 {saved_comments}/{comment_count} 条评论")
+                        else:
+                            utils.logger.info(f"[TiebaSimulationCrawler] 未获取到评论或评论为空: {post_id}")
                         
-                        # 模拟用户行为延迟
-                        await asyncio.sleep(random.uniform(0.5, 1.5))
+                        # 模拟用户行为延迟（缩短延迟时间）
+                        await asyncio.sleep(random.uniform(0.3, 1.0))
                         
                     except Exception as e:
-                        utils.logger.warning(f"[TiebaSimulationCrawler] 获取帖子详情失败 {post_id}: {e}")
-                        # 详情获取失败不影响主帖保存
+                        # 分类错误类型并采用不同的处理策略
+                        error_msg = str(e).lower()
+                        
+                        if "timeout" in error_msg or "exceeded" in error_msg:
+                            utils.logger.warning(f"[TiebaSimulationCrawler] 获取帖子详情超时 {post_id}: {e}")
+                            utils.logger.info(f"[TiebaSimulationCrawler] 超时不影响主帖保存，继续处理下一个")
+                        elif "datafetcherror" in error_msg:
+                            utils.logger.warning(f"[TiebaSimulationCrawler] 数据获取错误 {post_id}: {e}")
+                        else:
+                            utils.logger.error(f"[TiebaSimulationCrawler] 未知错误类型 {post_id}: {e}")
+                        
+                        # 详情获取失败不影响主帖保存，但记录统计信息
+                        processed_content['detail_fetch_failed'] = True
+                        processed_content['detail_fetch_error'] = str(e)
                 
                 processed_items.append(processed_content)
                 
@@ -361,7 +390,20 @@ class TiebaSimulationCrawler(AbstractCrawler):
                 utils.logger.error(f"[TiebaSimulationCrawler] 处理帖子数据失败: {e}")
                 continue
         
-        utils.logger.info(f"[TiebaSimulationCrawler] 批次处理完成: {len(processed_items)}/{len(content_list)}")
+        # 统计处理结果
+        total_items = len(content_list) if content_list else 0
+        processed_count = len(processed_items)
+        failed_details = sum(1 for item in processed_items if item.get('detail_fetch_failed', False))
+        successful_details = processed_count - failed_details
+        
+        utils.logger.info(f"[TiebaSimulationCrawler] 批次处理完成: {processed_count}/{total_items}")
+        if config.ENABLE_GET_COMMENTS and processed_count > 0:
+            utils.logger.info(f"[TiebaSimulationCrawler] 详情获取统计: 成功 {successful_details}, 失败 {failed_details}")
+            
+            # 计算成功率
+            if processed_count > 0:
+                success_rate = (successful_details / processed_count) * 100
+                utils.logger.info(f"[TiebaSimulationCrawler] 详情获取成功率: {success_rate:.1f}%")
         
         # 有内容时重置空页面计数
         if processed_items:
@@ -657,7 +699,13 @@ class TiebaSimulationCrawler(AbstractCrawler):
                     
                     comments = comments_result['comments']
                     for comment in comments:
-                        await self._save_comment_data(comment)
+                        await self._save_comment_data(
+                            comment, 
+                            post_id, 
+                            f"https://tieba.baidu.com/p/{post_id}",
+                            "",  # tieba_name - 将在评论保存时设置默认值
+                            ""   # tieba_link - 将在评论保存时设置默认值
+                        )
                         comment_count += 1
                         
                         if comment_count >= max_comments:
@@ -734,15 +782,48 @@ class TiebaSimulationCrawler(AbstractCrawler):
                 except (ValueError, TypeError):
                     cleaned[field] = 0
         
+        # 移除不属于TiebaNote模型的字段（如错误记录字段）
+        model_fields = {
+            'note_id', 'title', 'desc', 'note_url', 'publish_time', 
+            'user_link', 'user_nickname', 'user_avatar', 'tieba_name', 
+            'tieba_link', 'total_replay_num', 'total_replay_page', 
+            'ip_location', 'source_keyword'
+        }
+        
+        # 保留模型字段，移除其他字段
+        cleaned = {k: v for k, v in cleaned.items() if k in model_fields}
+        
         return cleaned
     
-    async def _save_comment_data(self, comment_data: Dict) -> None:
+    async def _save_comment_data(self, comment_data: Dict, note_id: str, note_url: str, tieba_name: str, tieba_link: str) -> None:
         """保存评论数据"""
         try:
-            # 这里需要根据实际的存储模型来调整
-            await tieba_store.update_tieba_note_comment(comment_data)
+            # 确保必需字段存在并重命名字段以匹配TiebaComment模型
+            processed_comment = {
+                'comment_id': comment_data.get('comment_id', f"comment_{int(time.time())}"),
+                'content': comment_data.get('content', ''),  # 必需字段
+                'user_nickname': comment_data.get('author', ''),  # 将author映射为user_nickname
+                'note_id': note_id,
+                'note_url': note_url,
+                'tieba_name': tieba_name,
+                'tieba_link': tieba_link,
+                'tieba_id': "",
+                'parent_comment_id': "",
+                'user_link': "",
+                'user_avatar': "",
+                'publish_time': "",
+                'ip_location': "",
+                'sub_comment_count': 0,
+            }
+            
+            # 转换为TiebaComment对象
+            tieba_comment = TiebaComment(**processed_comment)
+            
+            # 保存到数据库
+            await tieba_store.update_tieba_note_comment(note_id, tieba_comment)
         except Exception as e:
             utils.logger.error(f"[TiebaSimulationCrawler] 保存评论数据失败: {e}")
+            utils.logger.debug(f"[TiebaSimulationCrawler] 问题评论数据: {comment_data}")
     
     async def _save_creator_data(self, creator_data: Dict) -> None:
         """保存创作者数据"""
