@@ -258,8 +258,8 @@ class BatchProcessor:
 def main():
     """命令行入口"""
     parser = argparse.ArgumentParser(description="AI内容分析批量处理器")
-    parser.add_argument("--platform", required=True, choices=list(PLATFORM_TABLES.keys()), 
-                       help="平台名称")
+    parser.add_argument("--platform", choices=list(PLATFORM_TABLES.keys()) + ["all"], 
+                       help="平台名称，使用 'all' 处理所有平台")
     parser.add_argument("--limit", type=int, default=10, help="处理数量限制")
     parser.add_argument("--content-ids", nargs="+", help="指定要处理的内容ID")
     parser.add_argument("--stats", action="store_true", help="显示统计信息")
@@ -279,30 +279,56 @@ def main():
     processor = BatchProcessor()
     
     try:
+        # 处理 --all 参数
+        platforms = [args.platform] if args.platform != "all" else list(PLATFORM_TABLES.keys())
+        
         if args.test:
             # 运行测试
-            if processor.test_processing(args.platform):
-                print(f"✓ 平台 {args.platform} 测试通过")
-            else:
-                print(f"✗ 平台 {args.platform} 测试失败")
-                return 1
+            for platform in platforms:
+                if processor.test_processing(platform):
+                    print(f"✓ 平台 {platform} 测试通过")
+                else:
+                    print(f"✗ 平台 {platform} 测试失败")
+                    return 1
         
         elif args.stats:
             # 显示统计信息
-            stats = processor.get_platform_stats(args.platform)
-            print(f"平台 {args.platform} 统计信息:")
-            for key, value in stats.items():
-                print(f"  {key}: {value}")
+            for platform in platforms:
+                stats = processor.get_platform_stats(platform)
+                print(f"平台 {platform} 统计信息:")
+                for key, value in stats.items():
+                    print(f"  {key}: {value}")
+                if len(platforms) > 1:
+                    print()  # 多平台时添加空行分隔
         
         elif args.content_ids:
-            # 处理指定内容
+            # 处理指定内容（仅支持单平台）
+            if args.platform == "all":
+                print("指定内容ID处理模式不支持 --all 参数")
+                return 1
             stats = processor.process_specific_content(args.platform, args.content_ids)
             print(f"处理完成: {stats.to_dict()}")
         
         else:
             # 批量处理
-            stats = processor.process_platform(args.platform, args.limit)
-            print(f"处理完成: {stats.to_dict()}")
+            total_stats = ProcessingStats()
+            for platform in platforms:
+                print(f"开始处理平台: {platform}")
+                stats = processor.process_platform(platform, args.limit)
+                print(f"平台 {platform} 处理完成: {stats.to_dict()}")
+                
+                # 累积统计
+                total_stats.total_items += stats.total_items
+                total_stats.processed_items += stats.processed_items
+                total_stats.success_items += stats.success_items
+                total_stats.failed_items += stats.failed_items
+                total_stats.skip_items += stats.skip_items
+                
+                if len(platforms) > 1:
+                    print()  # 多平台时添加空行分隔
+            
+            if len(platforms) > 1:
+                print(f"所有平台处理完成，总计: {total_stats.to_dict()}")
         
         return 0
         
