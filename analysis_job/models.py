@@ -38,7 +38,7 @@ class ContentItem:
         
         if self.comments:
             content_parts.append("评论:")
-            for i, comment in enumerate(self.comments[:10]):  # 最多取10条评论
+            for i, comment in enumerate(self.comments):  # 包含所有评论
                 comment_text = comment.get('content', '')
                 if comment_text:
                     content_parts.append(f"{i+1}. {comment_text}")
@@ -105,7 +105,7 @@ class BatchAnalysisRequest:
         return sum(item.get_content_length() for item in self.content_items)
     
     def split_to_batches(self, target_length: int = 6000) -> List['BatchAnalysisRequest']:
-        """根据目标长度拆分为多个批次"""
+        """优先按数量拆分批次，同时考虑长度限制"""
         batches = []
         current_batch = []
         current_length = 0
@@ -131,8 +131,18 @@ class BatchAnalysisRequest:
                 ))
                 continue
             
-            # 如果添加当前项会超过目标长度，先提交当前批次
-            if current_length + item_length > target_length and current_batch:
+            # 优先按数量拆分：如果当前批次已达到batch_size，提交批次
+            if len(current_batch) >= self.batch_size:
+                batches.append(BatchAnalysisRequest(
+                    platform=self.platform,
+                    content_items=current_batch,
+                    batch_size=len(current_batch)
+                ))
+                current_batch = []
+                current_length = 0
+            
+            # 如果添加当前项会超过目标长度，也要提交当前批次
+            elif current_length + item_length > target_length and current_batch:
                 batches.append(BatchAnalysisRequest(
                     platform=self.platform,
                     content_items=current_batch,
@@ -163,8 +173,8 @@ class ProcessingStats:
     success_items: int = 0
     failed_items: int = 0
     skipped_items: int = 0
-    start_time: datetime = None
-    end_time: datetime = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
     
     def __post_init__(self):
         if self.start_time is None:

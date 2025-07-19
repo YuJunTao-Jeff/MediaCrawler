@@ -272,10 +272,10 @@ class DatabaseManager:
             
             content = " ".join(content_parts) if content_parts else ""
             
-            # 获取评论
+            # 获取所有评论
             comments = session.query(CommentModel).filter(
                 getattr(CommentModel, id_field) == content_id
-            ).order_by(CommentModel.add_ts.desc()).limit(20).all()
+            ).order_by(CommentModel.add_ts.desc()).all()
             
             comment_list = []
             for comment in comments:
