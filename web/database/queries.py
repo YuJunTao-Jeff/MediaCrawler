@@ -3,6 +3,7 @@
 """
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy import func, text, or_, and_
@@ -13,6 +14,52 @@ from .connection import get_db_session, close_db_session
 from .models import PLATFORM_MODELS, PLATFORM_NAMES, get_model_by_platform
 
 logger = logging.getLogger(__name__)
+
+def parse_relative_time(time_str: str) -> Optional[datetime]:
+    """解析相对时间字符串，如'3天前', '2小时前'等"""
+    if not time_str:
+        return None
+        
+    time_str = time_str.strip()
+    now = datetime.now()
+    
+    # 匹配模式：数字 + 时间单位 + "前"
+    patterns = [
+        (r'(\d+)年前', 'years'),
+        (r'(\d+)个月前', 'months'), 
+        (r'(\d+)月前', 'months'),
+        (r'(\d+)天前', 'days'),
+        (r'(\d+)小时前', 'hours'),
+        (r'(\d+)分钟前', 'minutes'),
+        (r'(\d+)秒前', 'seconds'),
+    ]
+    
+    for pattern, unit in patterns:
+        match = re.search(pattern, time_str)
+        if match:
+            num = int(match.group(1))
+            if unit == 'years':
+                return now - timedelta(days=num * 365)
+            elif unit == 'months':
+                return now - timedelta(days=num * 30)
+            elif unit == 'days':
+                return now - timedelta(days=num)
+            elif unit == 'hours':
+                return now - timedelta(hours=num)
+            elif unit == 'minutes':
+                return now - timedelta(minutes=num)
+            elif unit == 'seconds':
+                return now - timedelta(seconds=num)
+    
+    # 特殊情况
+    if '刚刚' in time_str or '刚才' in time_str:
+        return now - timedelta(minutes=1)
+    elif '昨天' in time_str:
+        return now - timedelta(days=1)
+    elif '前天' in time_str:
+        return now - timedelta(days=2)
+    
+    return None
 
 @dataclass
 class SearchFilters:
@@ -70,10 +117,43 @@ class ContentItem:
             except:
                 publish_time = datetime.now()
         elif platform == 'zhihu':
-            # 知乎的时间字段也是字符串格式
+            # 知乎的时间字段也是字符串格式，需要尝试多种格式
             try:
-                if isinstance(publish_time_value, str):
-                    publish_time = datetime.strptime(publish_time_value, '%Y-%m-%d %H:%M:%S')
+                if isinstance(publish_time_value, str) and publish_time_value.strip():
+                    # 尝试多种时间格式
+                    time_formats = [
+                        '%Y-%m-%d %H:%M:%S',
+                        '%Y-%m-%d',
+                        '%Y-%m-%d %H:%M',
+                        '%m-%d %H:%M',  # 可能的格式
+                        '%Y年%m月%d日 %H:%M',  # 中文格式
+                        '%Y年%m月%d日',
+                    ]
+                    
+                    parsed = False
+                    for time_format in time_formats:
+                        try:
+                            publish_time = datetime.strptime(publish_time_value.strip(), time_format)
+                            parsed = True
+                            break
+                        except:
+                            continue
+                    
+                    if not parsed:
+                        # 尝试解析相对时间，如"3天前", "1小时前"
+                        publish_time = parse_relative_time(publish_time_value)
+                        if publish_time is None:
+                            # 如果都解析失败，返回一个较早的默认时间而不是当前时间
+                            publish_time = datetime(2020, 1, 1)
+                else:
+                    publish_time = datetime(2020, 1, 1)
+            except:
+                publish_time = datetime(2020, 1, 1)
+        elif platform == 'news':
+            # 新闻的时间字段是datetime格式
+            try:
+                if publish_time_value:
+                    publish_time = publish_time_value
                 else:
                     publish_time = datetime.now()
             except:
@@ -121,9 +201,9 @@ def get_field_mapping(platform: str) -> Dict[str, str]:
         },
         'kuaishou': {
             'content_id': 'video_id',
-            'title': 'video_title',
-            'content': 'video_desc',
-            'author_name': 'user_name',
+            'title': 'title',  # 使用实际表中的字段名
+            'content': 'desc',  # 使用实际表中的字段名
+            'author_name': 'nickname',  # 使用实际表中的字段名
             'publish_time': 'create_time',
             'url': 'video_url'
         },
@@ -158,6 +238,14 @@ def get_field_mapping(platform: str) -> Dict[str, str]:
             'author_name': 'user_nickname',
             'publish_time': 'created_time',
             'url': 'content_url'
+        },
+        'news': {
+            'content_id': 'article_id',
+            'title': 'title',
+            'content': 'summary',  # 使用摘要作为内容，如果需要完整内容可改为'content'
+            'author_name': 'source_site',  # 使用来源网站作为作者
+            'publish_time': 'publish_date',
+            'url': 'source_url'
         }
     }
     return mappings.get(platform, {})
@@ -185,10 +273,10 @@ def get_interaction_count(model_instance, platform: str) -> int:
             comment = int(getattr(model_instance, 'video_comment', '0') or '0')
             return liked + comment + play // 100  # 播放量按百分之一计算
         elif platform == 'weibo':
-            reposts = getattr(model_instance, 'reposts_count', 0)
-            comments = getattr(model_instance, 'comments_count', 0)
-            attitudes = getattr(model_instance, 'attitudes_count', 0)
-            return reposts + comments + attitudes
+            liked = int(getattr(model_instance, 'liked_count', '0') or '0')
+            comments = int(getattr(model_instance, 'comments_count', '0') or '0')
+            shared = int(getattr(model_instance, 'shared_count', '0') or '0')
+            return liked + comments + shared
         elif platform == 'tieba':
             reply_num = getattr(model_instance, 'total_replay_num', 0) or 0
             return reply_num
@@ -196,6 +284,10 @@ def get_interaction_count(model_instance, platform: str) -> int:
             comment = getattr(model_instance, 'comment_count', 0) or 0
             voteup = getattr(model_instance, 'voteup_count', 0) or 0
             return comment + voteup
+        elif platform == 'news':
+            # 新闻文章没有互动计数，返回字数作为参考
+            word_count = getattr(model_instance, 'word_count', 0) or 0
+            return word_count // 100  # 字数除以100作为热度指标
     except (ValueError, TypeError):
         return 0
     return 0
@@ -239,6 +331,12 @@ class DataQueryService:
                 if platform in ['tieba', 'zhihu']:
                     # 对于时间字段是字符串的平台，暂时跳过时间筛选
                     pass
+                elif platform == 'news':
+                    # news平台使用datetime字段
+                    if filters.start_time:
+                        query = query.filter(getattr(model, time_field) >= filters.start_time)
+                    if filters.end_time:
+                        query = query.filter(getattr(model, time_field) <= filters.end_time)
                 else:
                     # 其他平台使用时间戳筛选
                     if filters.start_time:
@@ -298,14 +396,23 @@ class DataQueryService:
                 logger.error(f"查询平台 {platform} 数据失败: {e}")
                 continue
         
+        # 去重逻辑 - 基于content_id去除重复数据
+        seen_content_ids = set()
+        unique_results = []
+        for result in all_results:
+            content_key = f"{result.platform}_{result.content_id}"
+            if content_key not in seen_content_ids:
+                seen_content_ids.add(content_key)
+                unique_results.append(result)
+        
         # 统一排序
         if filters.sort_by == 'time':
-            all_results.sort(
+            unique_results.sort(
                 key=lambda x: x.publish_time,
                 reverse=(filters.sort_order == 'desc')
             )
         elif filters.sort_by == 'interaction':
-            all_results.sort(
+            unique_results.sort(
                 key=lambda x: x.interaction_count,
                 reverse=(filters.sort_order == 'desc')
             )
@@ -313,9 +420,9 @@ class DataQueryService:
         # 内存分页
         start_idx = (filters.page - 1) * filters.page_size
         end_idx = start_idx + filters.page_size
-        paginated_results = all_results[start_idx:end_idx]
+        paginated_results = unique_results[start_idx:end_idx]
         
-        return paginated_results, len(all_results)
+        return paginated_results, len(unique_results)
     
     def get_platform_stats(self) -> Dict[str, int]:
         """获取平台统计"""

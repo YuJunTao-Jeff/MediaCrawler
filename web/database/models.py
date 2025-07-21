@@ -103,16 +103,18 @@ class KuaishousVideo(Base, BaseModel):
     __tablename__ = 'kuaishou_video'
     
     video_id = Column(String(64), nullable=False, index=True)
-    video_title = Column(String(500), nullable=False)
-    video_desc = Column(Text)
+    video_type = Column(String(16), nullable=True)  # 使用实际表中的字段
+    title = Column(String(500), nullable=True)  # 使用实际表中的字段名
+    desc = Column(Text)
     create_time = Column(BigInteger, nullable=False)
-    user_id = Column(String(64), nullable=False, index=True)
-    user_name = Column(String(64), nullable=False)
-    user_avatar = Column(Text)
-    liked_count = Column(String(16), nullable=False)
-    viewd_count = Column(String(16), nullable=False)
-    video_url = Column(String(255), nullable=False)
-    video_cover_url = Column(Text)
+    user_id = Column(String(64), nullable=True, index=True)
+    nickname = Column(String(64), nullable=True)  # 使用实际表中的字段名
+    avatar = Column(String(255), nullable=True)  # 使用实际表中的字段名
+    liked_count = Column(String(16), nullable=True)
+    viewd_count = Column(String(16), nullable=True)
+    video_url = Column(String(512), nullable=True)  # 使用实际表中的字段长度
+    video_cover_url = Column(String(512), nullable=True)  # 使用实际表中的字段长度
+    video_play_url = Column(String(512), nullable=True)  # 新增实际表中的字段
     source_keyword = Column(String(255))
     analysis_info = Column(JSON)
 
@@ -142,20 +144,19 @@ class WeiboNote(Base, BaseModel):
     __tablename__ = 'weibo_note'
     
     note_id = Column(String(64), nullable=False, index=True)
-    content = Column(Text, nullable=False)
+    content = Column(Text)
     create_time = Column(BigInteger, nullable=False)
-    create_date_time = Column(BigInteger, nullable=False)
-    user_id = Column(String(64), nullable=False, index=True)
-    nickname = Column(String(64), nullable=False)
-    avatar = Column(Text)
-    gender = Column(String(12), nullable=False)
-    location = Column(String(32), nullable=False)
-    ip_location = Column(String(32), nullable=False)
-    reposts_count = Column(Integer, nullable=False)
-    comments_count = Column(Integer, nullable=False)
-    attitudes_count = Column(Integer, nullable=False)
-    source = Column(String(64), nullable=False)
-    note_url = Column(String(512), nullable=False)
+    create_date_time = Column(String(32), nullable=False)  # 使用实际表中的字段类型
+    user_id = Column(String(64), nullable=True, index=True)
+    nickname = Column(String(64), nullable=True)
+    avatar = Column(String(255), nullable=True)  # 使用实际表中的字段类型和长度
+    gender = Column(String(12), nullable=True)
+    profile_url = Column(String(255), nullable=True)  # 新增实际表中的字段
+    ip_location = Column(String(32), default='发布微博的地理信息')
+    liked_count = Column(String(16), nullable=True)  # 使用实际表中的字段名
+    comments_count = Column(String(16), nullable=True)  # 使用实际表中的字段类型
+    shared_count = Column(String(16), nullable=True)  # 使用实际表中的字段名
+    note_url = Column(String(512), nullable=True)
     source_keyword = Column(String(255))
     analysis_info = Column(JSON)
 
@@ -196,6 +197,26 @@ class ZhihuContent(Base, BaseModel):
     source_keyword = Column(String(255))
     analysis_info = Column(JSON)
 
+class NewsArticle(Base, BaseModel):
+    """新闻文章模型"""
+    __tablename__ = 'news_article'
+    
+    article_id = Column(String(128), nullable=False, index=True)
+    source_url = Column(String(1000), nullable=False)
+    title = Column(String(500), nullable=False)
+    content = Column(Text)
+    summary = Column(Text)
+    keywords = Column(JSON)
+    authors = Column(JSON)
+    publish_date = Column(DateTime)
+    source_domain = Column(String(255))
+    source_site = Column(String(255))
+    top_image = Column(String(1000))
+    word_count = Column(Integer)
+    language = Column(String(32), default='zh')
+    article_metadata = Column(JSON)
+    analysis_info = Column(JSON)
+
 # 平台模型映射
 PLATFORM_MODELS = {
     'xhs': XhsNote,
@@ -204,7 +225,8 @@ PLATFORM_MODELS = {
     'bilibili': BilibiliVideo,
     'weibo': WeiboNote,
     'tieba': TiebaNote,
-    'zhihu': ZhihuContent
+    'zhihu': ZhihuContent,
+    'news': NewsArticle
 }
 
 # 平台中文名称映射
@@ -215,7 +237,8 @@ PLATFORM_NAMES = {
     'bilibili': '哔哩哔哩',
     'weibo': '微博',
     'tieba': '贴吧',
-    'zhihu': '知乎'
+    'zhihu': '知乎',
+    'news': '新闻'
 }
 
 def get_model_by_platform(platform: str):
