@@ -222,17 +222,76 @@ def render_sidebar():
                 st.markdown("### 📈 平台数据统计")
                 from web.database.models import PLATFORM_NAMES
                 
-                total_count = sum(platform_stats.values())
-                st.metric("总数据量", f"{total_count:,}")
+                # 提取实际的统计数据（排除调试信息）
+                actual_stats = {k: v for k, v in platform_stats.items() if not k.startswith('_')}
+                debug_info = platform_stats.get('_summary', {})
+                platform_status = platform_stats.get('_platform_status', {})
                 
-                for platform, count in platform_stats.items():
+                total_count = debug_info.get('total_count', sum(actual_stats.values()))
+                successful_platforms = debug_info.get('successful_platforms', [])
+                failed_platforms = debug_info.get('failed_platforms', [])
+                
+                # 显示总数据量
+                st.metric("总数据量", f"{total_count:,}", f"成功: {len(successful_platforms)}/{len(actual_stats)}")
+                
+                # 显示各平台统计
+                for platform, count in actual_stats.items():
+                    platform_name = PLATFORM_NAMES.get(platform, platform)
+                    status = platform_status.get(platform, "未知状态")
+                    
                     if count > 0:
-                        platform_name = PLATFORM_NAMES.get(platform, platform)
                         percentage = (count / total_count * 100) if total_count > 0 else 0
-                        st.metric(platform_name, f"{count:,}", f"{percentage:.1f}%")
+                        # 成功的平台显示绿色指示
+                        st.metric(
+                            f"🟢 {platform_name}", 
+                            f"{count:,}", 
+                            f"{percentage:.1f}%"
+                        )
+                    else:
+                        # 失败的平台显示红色指示和错误原因
+                        if "表不存在" in status:
+                            indicator = "🔴"
+                            error_hint = "表不存在"
+                        elif "查询失败" in status:
+                            indicator = "🟡"  
+                            error_hint = "查询失败"
+                        else:
+                            indicator = "⚪"
+                            error_hint = "无数据"
+                        
+                        st.metric(
+                            f"{indicator} {platform_name}",
+                            "0",
+                            error_hint
+                        )
+                
+                # 添加调试信息展开面板
+                if st.checkbox("🔍 显示详细调试信息", value=False, key="show_debug"):
+                    st.markdown("#### 🛠️ 调试信息")
+                    
+                    # 平台状态详情
+                    for platform, status in platform_status.items():
+                        platform_name = PLATFORM_NAMES.get(platform, platform)
+                        if "查询成功" in status:
+                            st.success(f"✅ {platform_name}: {status}")
+                        else:
+                            st.error(f"❌ {platform_name}: {status}")
+                    
+                    # 总结信息
+                    if debug_info:
+                        st.json({
+                            "统计总结": {
+                                "总数据量": debug_info.get('total_count', 0),
+                                "成功平台数": len(successful_platforms),
+                                "失败平台数": len(failed_platforms),
+                                "成功平台": successful_platforms,
+                                "失败平台": failed_platforms
+                            }
+                        })
         except Exception as e:
             logger.error(f"获取平台统计失败: {e}")
-            st.warning("⚠️ 平台统计数据获取失败")
+            st.error("🔴 平台统计数据获取失败")
+            st.exception(e)
         
         # 系统信息
         st.markdown("### ℹ️ 系统信息")

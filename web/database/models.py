@@ -80,21 +80,21 @@ class DouyinAweme(Base, BaseModel):
     
     aweme_id = Column(String(64), nullable=False, index=True)
     aweme_type = Column(String(16), nullable=False)
-    title = Column(String(500), nullable=False)
+    title = Column(String(1024), nullable=True)
     desc = Column(Text)
     create_time = Column(BigInteger, nullable=False)
-    user_id = Column(String(64), nullable=False, index=True)
-    sec_uid = Column(String(128), nullable=False)
-    short_user_id = Column(String(64), nullable=False)
-    user_unique_id = Column(String(128), nullable=False)
-    user_signature = Column(Text)
-    nickname = Column(String(64), nullable=False)
-    avatar = Column(Text)
-    liked_count = Column(String(16), nullable=False)
-    comment_count = Column(String(16), nullable=False)
-    share_count = Column(String(16), nullable=False)
-    collect_count = Column(String(16), nullable=False)
-    aweme_url = Column(String(255), nullable=False)
+    user_id = Column(String(64), nullable=True, index=True)
+    sec_uid = Column(String(128), nullable=True)
+    short_user_id = Column(String(64), nullable=True)
+    user_unique_id = Column(String(64), nullable=True)
+    user_signature = Column(String(500), nullable=True)
+    nickname = Column(String(64), nullable=True)
+    avatar = Column(String(255), nullable=True)
+    liked_count = Column(String(16), nullable=True)
+    comment_count = Column(String(16), nullable=True)
+    share_count = Column(String(16), nullable=True)
+    collected_count = Column(String(16), nullable=True)  # 修正字段名：collect_count -> collected_count
+    aweme_url = Column(String(255), nullable=True)
     source_keyword = Column(String(255))
     analysis_info = Column(JSON)
 
@@ -111,8 +111,6 @@ class KuaishousVideo(Base, BaseModel):
     user_avatar = Column(Text)
     liked_count = Column(String(16), nullable=False)
     viewd_count = Column(String(16), nullable=False)
-    comment_count = Column(String(16), nullable=False)
-    share_count = Column(String(16), nullable=False)
     video_url = Column(String(255), nullable=False)
     video_cover_url = Column(Text)
     source_keyword = Column(String(255))
@@ -169,13 +167,13 @@ class TiebaNote(Base, BaseModel):
     title = Column(String(255), nullable=False)
     desc = Column(Text)
     note_url = Column(String(255), nullable=False)
-    publish_time = Column(BigInteger, nullable=False)
+    publish_time = Column(String(255), nullable=False)  # 实际表中是varchar类型
     user_link = Column(String(255), nullable=False)
     user_nickname = Column(String(64), nullable=False)
     user_avatar = Column(Text)
     tieba_name = Column(String(64), nullable=False)
     tieba_link = Column(String(255), nullable=False)
-    comment_count = Column(String(16), nullable=False)
+    total_replay_num = Column(Integer, default=0)  # 使用实际表中的字段名
     source_keyword = Column(String(255))
     analysis_info = Column(JSON)
 
@@ -188,14 +186,13 @@ class ZhihuContent(Base, BaseModel):
     content_url = Column(String(512), nullable=False)
     title = Column(String(500), nullable=False)
     desc = Column(Text)
-    create_time = Column(BigInteger, nullable=False)
+    created_time = Column(String(32), nullable=False)  # 使用实际表中的字段名和类型
     user_id = Column(String(64), nullable=False, index=True)
-    user_url = Column(String(255), nullable=False)
-    user_name = Column(String(64), nullable=False)
+    user_link = Column(String(255), nullable=False)  # 使用实际表中的字段名
+    user_nickname = Column(String(64), nullable=False)  # 使用实际表中的字段名
     user_avatar = Column(Text)
-    user_sign = Column(Text)
-    comment_count = Column(String(16), nullable=False)
-    praise_count = Column(String(16), nullable=False)
+    comment_count = Column(Integer, nullable=False, default=0)  # 使用实际表中的类型
+    voteup_count = Column(Integer, nullable=False, default=0)  # 使用实际表中的字段名
     source_keyword = Column(String(255))
     analysis_info = Column(JSON)
 

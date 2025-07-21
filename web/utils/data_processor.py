@@ -59,23 +59,48 @@ class WebDataProcessor:
         """获取平台统计数据"""
         cache_key = "platform_stats"
         
+        # 检查缓存是否有效（但不缓存错误结果）
         if self._is_cache_valid(cache_key):
-            return self.cache[cache_key]['data']
+            cached_data = self.cache[cache_key]['data']
+            # 检查缓存数据是否包含有效统计（至少有一个平台有数据）
+            actual_stats = {k: v for k, v in cached_data.items() if not k.startswith('_')}
+            if any(count > 0 for count in actual_stats.values()):
+                logger.info("从缓存返回平台统计数据")
+                return cached_data
+            else:
+                logger.warning("缓存的平台统计数据全部为0，重新查询")
         
         try:
             with DataQueryService() as service:
                 stats = service.get_platform_stats()
                 
-                self.cache[cache_key] = {
-                    'data': stats,
-                    'timestamp': time.time()
-                }
+                # 检查结果是否有效（不全为0且包含调试信息）
+                actual_stats = {k: v for k, v in stats.items() if not k.startswith('_')}
+                summary = stats.get('_summary', {})
+                
+                # 只有在有有效数据或者明确知道查询状态时才缓存
+                if any(count > 0 for count in actual_stats.values()) or summary.get('successful_platforms'):
+                    self.cache[cache_key] = {
+                        'data': stats,
+                        'timestamp': time.time()
+                    }
+                    logger.info(f"平台统计已缓存 - 总数据量: {summary.get('total_count', 0)}")
+                else:
+                    logger.warning("平台统计结果无效，不进行缓存")
                 
                 return stats
                 
         except Exception as e:
             logger.error(f"获取平台统计失败: {e}")
-            return {}
+            # 返回空的但格式正确的统计结果
+            return {
+                '_platform_status': {},
+                '_summary': {
+                    'total_count': 0,
+                    'successful_platforms': [],
+                    'failed_platforms': []
+                }
+            }
     
     def get_sentiment_statistics(self, filters: SearchFilters) -> Dict[str, int]:
         """获取情感统计数据"""
