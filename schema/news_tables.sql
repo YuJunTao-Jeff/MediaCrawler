@@ -36,6 +36,7 @@ CREATE TABLE `news_article`
     `publish_date`        datetime     COMMENT '发布时间(newspaper3k提取)',
     `source_domain`       varchar(255) COMMENT '来源域名',
     `source_site`         varchar(255) COMMENT '来源网站名称',
+    `source_keyword` varchar(64) DEFAULT NULL COMMENT '来源关键词',
     `top_image`           varchar(1000) COMMENT '文章主图URL',
     `word_count`          int          COMMENT '字数统计',
     `language`            varchar(32)  DEFAULT 'zh' COMMENT '语言',

@@ -214,7 +214,8 @@ class NewsArticle(Base, BaseModel):
     top_image = Column(String(1000))
     word_count = Column(Integer)
     language = Column(String(32), default='zh')
-    article_metadata = Column(JSON)
+    article_metadata = Column('metadata', JSON)  # 使用column别名映射到metadata字段
+    source_keyword = Column(String(255))  # 添加source_keyword字段
     analysis_info = Column(JSON)
 
 # 平台模型映射

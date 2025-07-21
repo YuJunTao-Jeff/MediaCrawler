@@ -446,3 +446,32 @@ NEWS_SPECIFIED_URL_LIST = [
     # "https://example.com/news/article2",
     # ........................
 ]
+
+# ==================== 搜狗微信配置 ====================
+# 是否启用搜狗微信爬虫
+SOGOU_WEIXIN_ENABLED = True
+
+# 搜狗微信搜索类型 (article文章搜索 | account公众号搜索)
+SOGOU_WEIXIN_SEARCH_TYPE = "article"
+
+# 最大页数限制
+SOGOU_WEIXIN_MAX_PAGES = 10
+
+# 请求延迟范围（秒）
+SOGOU_WEIXIN_REQUEST_DELAY = (8, 12)
+
+# 是否提取原文完整内容
+SOGOU_WEIXIN_EXTRACT_ORIGINAL_CONTENT = True
+
+# Cookie池配置
+SOGOU_WEIXIN_COOKIE_POOL_SIZE = 10
+SOGOU_WEIXIN_COOKIE_REFRESH_INTERVAL = 40
+
+# 每个会话最大页数（防反爬）
+SOGOU_WEIXIN_MAX_PAGES_PER_SESSION = 20
+
+# 是否启用代理
+SOGOU_WEIXIN_ENABLE_PROXY = True
+
+# 搜狗微信Cookie字符串（Cookie登录时使用）
+SOGOU_WEIXIN_COOKIE_STR = ""

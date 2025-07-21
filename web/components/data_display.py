@@ -198,6 +198,39 @@ def show_content_analysis(item: ContentItem):
             else:
                 st.write("情感评分：暂无")
         
+        # AI分析信息展示
+        analysis_info = None
+        if hasattr(item, '_model_instance') and item._model_instance:
+            analysis_info = item._model_instance.get_analysis_info()
+        
+        if analysis_info:
+            st.markdown("**AI分析详情**")
+            col_analysis1, col_analysis2 = st.columns(2)
+            
+            with col_analysis1:
+                if 'summary' in analysis_info:
+                    st.markdown("📝 **内容摘要**")
+                    st.text_area("", value=analysis_info['summary'], height=100, disabled=True, key=f"summary_{item.id}")
+                
+                if 'keywords' in analysis_info and analysis_info['keywords']:
+                    st.markdown("🏷️ **关键词**")
+                    keywords_text = ", ".join(analysis_info['keywords']) if isinstance(analysis_info['keywords'], list) else str(analysis_info['keywords'])
+                    st.text(keywords_text)
+            
+            with col_analysis2:
+                if 'category' in analysis_info:
+                    st.markdown("📂 **内容分类**")
+                    st.text(analysis_info['category'])
+                
+                if 'relevance_score' in analysis_info:
+                    st.markdown("🎯 **相关性评分**")
+                    relevance = float(analysis_info['relevance_score'])
+                    st.progress(relevance, text=f"{relevance:.2%}")
+                
+                if 'key_comment_ids' in analysis_info and analysis_info['key_comment_ids']:
+                    st.markdown("💬 **重点评论**")
+                    st.text(f"共 {len(analysis_info['key_comment_ids'])} 条重点评论")
+        
         # 完整内容
         if item.content:
             st.markdown("**完整内容**")

@@ -109,10 +109,12 @@ def render_search_history():
                     st.caption(f"🕐 {history_item['time']} - {history_item['keywords']}")
                 with col2:
                     if st.button("重新搜索", key=f"history_{i}", use_container_width=True):
-                        st.session_state.search_keywords = history_item['keywords']
+                        # 使用临时状态来避免直接修改search_keywords
+                        st.session_state.temp_search_keywords = history_item['keywords']
+                        st.session_state.trigger_search = True
                         st.rerun()
 
-def render_search_stats(total_results: int, search_time: float):
+def render_search_stats(total_results: int, search_time: float, content_items=None):
     """渲染搜索统计信息"""
     col1, col2, col3 = st.columns(3)
     
@@ -123,8 +125,24 @@ def render_search_stats(total_results: int, search_time: float):
         st.metric("搜索用时", f"{search_time:.2f} 秒")
     
     with col3:
-        if total_results > 0:
-            st.metric("平均相关度", "92%")  # 这里可以计算实际的相关度
+        if total_results > 0 and content_items:
+            # 计算实际的平均相关度
+            relevance_scores = []
+            for item in content_items:
+                if hasattr(item, '_model_instance') and item._model_instance:
+                    analysis_info = item._model_instance.get_analysis_info()
+                    if analysis_info and 'relevance_score' in analysis_info:
+                        try:
+                            score = float(analysis_info['relevance_score'])
+                            relevance_scores.append(score)
+                        except:
+                            pass
+            
+            if relevance_scores:
+                avg_relevance = sum(relevance_scores) / len(relevance_scores)
+                st.metric("平均相关度", f"{avg_relevance:.1%}")
+            else:
+                st.metric("平均相关度", "暂无")
         else:
             st.metric("平均相关度", "-")
 

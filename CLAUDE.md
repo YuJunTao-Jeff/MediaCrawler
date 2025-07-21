@@ -476,6 +476,144 @@ python main.py --platform xhs --type search --keywords "test" --browser_concurre
 
 这种浏览器自动化+网络拦截的技术方案代表了现代爬虫技术的发展方向，能够有效应对日益复杂的反爬虫机制，是MediaCrawler项目未来发展的重要技术储备。
 
+## 搜狗微信渠道扩展
+
+### 概述
+搜狗微信(sogou_weixin)平台已完成集成，支持微信公众号文章的搜索和爬取。该平台采用浏览器自动化+DOM解析技术，具备强大的反检测能力。
+
+### 数据库表结构
+```sql
+-- 微信公众号文章表
+CREATE TABLE `weixin_article` (
+    `id` int NOT NULL AUTO_INCREMENT COMMENT '自增ID',
+    `article_id` varchar(128) NOT NULL COMMENT '文章唯一ID(URL MD5)',
+    `title` varchar(500) NOT NULL COMMENT '文章标题',
+    `content` longtext COMMENT '文章正文内容',
+    `summary` text COMMENT '文章摘要/描述',
+    `account_name` varchar(255) NOT NULL COMMENT '公众号名称',
+    `account_id` varchar(128) DEFAULT NULL COMMENT '公众号微信号',
+    `cover_image` varchar(1000) DEFAULT NULL COMMENT '封面图片URL',
+    `original_url` varchar(1000) NOT NULL COMMENT '原文链接',
+    `publish_time` varchar(64) DEFAULT NULL COMMENT '发布时间',
+    `publish_timestamp` bigint DEFAULT NULL COMMENT '发布时间戳',
+    `read_count` varchar(32) DEFAULT NULL COMMENT '阅读数',
+    `like_count` varchar(32) DEFAULT NULL COMMENT '点赞数',
+    `source_keyword` varchar(255) DEFAULT NULL COMMENT '搜索关键词',
+    `add_ts` bigint NOT NULL COMMENT '记录添加时间戳',
+    `last_modify_ts` bigint NOT NULL COMMENT '记录最后修改时间戳',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_article_id` (`article_id`),
+    KEY `idx_account_name` (`account_name`),
+    KEY `idx_source_keyword` (`source_keyword`),
+    KEY `idx_publish_timestamp` (`publish_timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='微信公众号文章表';
+```
+
+### 核心技术特性
+1. **基于Chrome MCP的页面结构分析**：通过真实浏览器分析页面结构，确保选择器准确性
+2. **浏览器自动化**：使用Playwright进行真实浏览器控制，降低检测风险
+3. **智能反检测**：包括User-Agent随机化、请求频率控制、验证码检测等
+4. **完整内容提取**：支持从原文链接提取完整文章内容
+5. **断点续爬支持**：集成现有resume_crawl系统
+
+### 关键页面结构（基于真实分析）
+```css
+/* 搜索结果容器 */
+.news-box .news-list
+
+/* 单个文章项 */
+.news-list li
+
+/* 文章标题和链接 */
+h3 a
+
+/* 文章摘要 */
+p.txt-info
+
+/* 公众号名称 */
+.s-p .all-time-y2
+
+/* 发布时间 */
+.s-p .s2
+
+/* 分页链接 */
+.p-fy a[id^="sogou_page_"]
+```
+
+### 使用示例
+
+#### 基础文章搜索
+```bash
+# 搜索微信公众号文章
+python main.py --platform sogou_weixin --type search --keywords "澳鹏科技,人工智能"
+
+# 使用启动脚本
+./scripts/run.sh --platform sogou_weixin --keywords "澳鹏科技"
+```
+
+#### 高级配置选项
+```bash
+# 启用断点续爬
+python main.py --platform sogou_weixin --type search --keywords "澳鹏" --resume_crawl true
+
+# 指定最大页数
+python main.py --platform sogou_weixin --type search --keywords "澳鹏" --max_pages 20
+```
+
+### 配置参数
+在`config/base_config.py`中新增的搜狗微信配置：
+
+```python
+# 搜狗微信配置
+SOGOU_WEIXIN_ENABLED = True                    # 是否启用
+SOGOU_WEIXIN_MAX_PAGES = 10                    # 最大页数限制
+SOGOU_WEIXIN_REQUEST_DELAY = (8, 12)           # 请求延迟范围（秒）
+SOGOU_WEIXIN_EXTRACT_ORIGINAL_CONTENT = True   # 是否提取原文内容
+SOGOU_WEIXIN_MAX_PAGES_PER_SESSION = 20        # 每会话最大页数
+SOGOU_WEIXIN_COOKIE_STR = ""                   # Cookie字符串
+```
+
+### 反爬虫策略
+1. **智能延迟控制**：8-12秒随机延迟，根据反检测级别动态调整
+2. **Cookie管理**：支持预配置Cookie，重点管理SUID、SUV、SNUID参数
+3. **请求频率限制**：每个会话最多翻页20页，避免触发反爬机制
+4. **用户行为模拟**：随机滚动、鼠标移动、阅读行为模拟
+5. **验证码检测**：自动检测验证码并提示人工处理
+
+### 数据存储
+- **主表**：weixin_article存储所有文章信息
+- **去重机制**：基于原文URL的MD5确保唯一性
+- **关键词追溯**：source_keyword字段记录搜索来源
+- **多格式支持**：支持DB、CSV、JSON三种存储格式
+
+### 技术架构
+```
+media_platform/sogou_weixin/
+├── __init__.py          # 模块入口
+├── core.py             # 主爬虫类
+├── client.py           # 搜狗微信客户端
+├── field.py            # 枚举和选择器定义
+├── help.py             # 工具类（解析器、反检测、行为模拟）
+├── login.py            # 登录管理
+└── exception.py        # 异常定义
+
+store/sogou_weixin/
+├── __init__.py                    # 存储接口
+├── sogou_weixin_store_impl.py     # 存储实现
+└── sogou_weixin_store_sql.py      # SQL语句
+
+model/
+└── m_weixin.py         # 微信文章数据模型
+```
+
+### 注意事项
+1. **合规使用**：仅用于学习研究目的，遵守平台使用条款
+2. **频率控制**：合理控制爬取频率，避免对平台造成负担
+3. **验证码处理**：遇到验证码时需人工介入处理
+4. **数据完整性**：首次使用需运行`python db.py`初始化数据库表
+
+搜狗微信渠道的成功集成为MediaCrawler项目增加了重要的微信公众号数据源，采用的浏览器自动化+真实结构分析方法为后续平台扩展提供了可靠的技术模式。
+
 ## AI分析任务系统
 
 ### 功能需求描述 (2025-07-18)

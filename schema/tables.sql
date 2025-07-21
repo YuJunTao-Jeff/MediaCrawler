@@ -593,3 +593,31 @@ alter table douyin_aweme_comment add column `like_count` varchar(255) NOT NULL D
 alter table xhs_note add column xsec_token varchar(50) default null comment '签名算法';
 alter table douyin_aweme_comment add column `pictures` varchar(500) NOT NULL DEFAULT '' COMMENT '评论图片列表';
 alter table bilibili_video_comment add column `like_count` varchar(255) NOT NULL DEFAULT '0' COMMENT '点赞数';
+
+-- ----------------------------
+-- Table structure for weixin_article
+-- ----------------------------
+DROP TABLE IF EXISTS `weixin_article`;
+CREATE TABLE `weixin_article` (
+    `id` int NOT NULL AUTO_INCREMENT COMMENT '自增ID',
+    `article_id` varchar(128) NOT NULL COMMENT '文章唯一ID(URL MD5)',
+    `title` varchar(500) NOT NULL COMMENT '文章标题',
+    `content` longtext COMMENT '文章正文内容',
+    `summary` text COMMENT '文章摘要/描述',
+    `account_name` varchar(255) NOT NULL COMMENT '公众号名称',
+    `account_id` varchar(128) DEFAULT NULL COMMENT '公众号微信号',
+    `cover_image` varchar(1000) DEFAULT NULL COMMENT '封面图片URL',
+    `original_url` varchar(1000) NOT NULL COMMENT '原文链接',
+    `publish_time` varchar(64) DEFAULT NULL COMMENT '发布时间',
+    `publish_timestamp` bigint DEFAULT NULL COMMENT '发布时间戳',
+    `read_count` varchar(32) DEFAULT NULL COMMENT '阅读数',
+    `like_count` varchar(32) DEFAULT NULL COMMENT '点赞数',
+    `source_keyword` varchar(255) DEFAULT NULL COMMENT '搜索关键词',
+    `add_ts` bigint NOT NULL COMMENT '记录添加时间戳',
+    `last_modify_ts` bigint NOT NULL COMMENT '记录最后修改时间戳',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_article_id` (`article_id`),
+    KEY `idx_account_name` (`account_name`),
+    KEY `idx_source_keyword` (`source_keyword`),
+    KEY `idx_publish_timestamp` (`publish_timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='微信公众号文章表';

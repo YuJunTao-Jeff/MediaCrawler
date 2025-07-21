@@ -331,6 +331,16 @@ def main():
         search_col1, search_col2 = st.columns([3, 1])
         
         with search_col1:
+            # 处理历史搜索的临时状态
+            if hasattr(st.session_state, 'trigger_search') and st.session_state.trigger_search:
+                # 清除触发标志
+                st.session_state.trigger_search = False
+                # 使用临时关键词
+                temp_keywords = st.session_state.get('temp_search_keywords', '')
+                if temp_keywords:
+                    st.session_state.search_keywords = temp_keywords
+                    del st.session_state.temp_search_keywords
+            
             # 搜索框
             search_keywords = render_search_box()
         
@@ -383,7 +393,7 @@ def main():
                     st.session_state.sentiment_stats = sentiment_stats
                     
                     # 显示搜索统计
-                    render_search_stats(total_count, query_time)
+                    render_search_stats(total_count, query_time, results)
                     
                     # 显示统计概览
                     if results:

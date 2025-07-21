@@ -97,6 +97,7 @@ class ContentItem:
     sentiment: str
     sentiment_score: float
     url: str
+    _model_instance: Any = None
     
     @classmethod
     def from_model(cls, model_instance, platform: str):
@@ -109,13 +110,43 @@ class ContentItem:
         if platform == 'tieba':
             # 贴吧的时间字段是字符串格式，需要特殊处理
             try:
-                if isinstance(publish_time_value, str):
-                    # 假设是 "YYYY-MM-DD HH:MM:SS" 格式
-                    publish_time = datetime.strptime(publish_time_value, '%Y-%m-%d %H:%M:%S')
+                if isinstance(publish_time_value, str) and publish_time_value.strip():
+                    # 尝试多种时间格式
+                    time_formats = [
+                        '%Y-%m-%d %H:%M:%S',
+                        '%Y-%m-%d %H:%M',
+                        '%Y-%m-%d',
+                        '%m-%d %H:%M',
+                        '%Y年%m月%d日 %H:%M:%S',
+                        '%Y年%m月%d日 %H:%M',
+                        '%Y年%m月%d日',
+                        '%m月%d日 %H:%M',
+                        '%m月%d日',
+                    ]
+                    
+                    parsed = False
+                    for time_format in time_formats:
+                        try:
+                            publish_time = datetime.strptime(publish_time_value.strip(), time_format)
+                            # 如果没有年份，添加当前年份
+                            if 'Y' not in time_format:
+                                current_year = datetime.now().year
+                                publish_time = publish_time.replace(year=current_year)
+                            parsed = True
+                            break
+                        except:
+                            continue
+                    
+                    if not parsed:
+                        # 尝试解析相对时间
+                        publish_time = parse_relative_time(publish_time_value)
+                        if publish_time is None:
+                            # 如果都解析失败，返回一个较早的默认时间
+                            publish_time = datetime(2020, 1, 1)
                 else:
-                    publish_time = datetime.now()
+                    publish_time = datetime(2020, 1, 1)
             except:
-                publish_time = datetime.now()
+                publish_time = datetime(2020, 1, 1)
         elif platform == 'zhihu':
             # 知乎的时间字段也是字符串格式，需要尝试多种格式
             try:
@@ -165,7 +196,7 @@ class ContentItem:
             except:
                 publish_time = datetime.now()
         
-        return cls(
+        content_item = cls(
             id=model_instance.id,
             platform=platform,
             platform_name=PLATFORM_NAMES.get(platform, platform),
@@ -179,6 +210,9 @@ class ContentItem:
             sentiment_score=model_instance.get_sentiment_score(),
             url=getattr(model_instance, field_mapping['url'], '')
         )
+        # 添加模型实例引用以便获取analysis_info
+        content_item._model_instance = model_instance
+        return content_item
 
 def get_field_mapping(platform: str) -> Dict[str, str]:
     """获取平台字段映射"""
@@ -328,9 +362,16 @@ class DataQueryService:
                 
                 # 时间筛选
                 time_field = get_field_mapping(platform)['publish_time']
-                if platform in ['tieba', 'zhihu']:
-                    # 对于时间字段是字符串的平台，暂时跳过时间筛选
-                    pass
+                if platform == 'tieba':
+                    # 贴吧时间筛选：尝试解析字符串时间进行筛选
+                    if filters.start_time or filters.end_time:
+                        # 获取所有记录，然后在应用层进行时间筛选
+                        # 这样虽然效率较低，但能正确处理各种时间格式
+                        pass  # 在后续处理中进行时间筛选
+                elif platform == 'zhihu':
+                    # 知乎时间筛选：类似处理
+                    if filters.start_time or filters.end_time:
+                        pass  # 在后续处理中进行时间筛选
                 elif platform == 'news':
                     # news平台使用datetime字段
                     if filters.start_time:
@@ -387,6 +428,14 @@ class DataQueryService:
                 for result in results:
                     try:
                         content_item = ContentItem.from_model(result, platform)
+                        
+                        # 对贴吧和知乎进行应用层时间筛选
+                        if platform in ['tieba', 'zhihu'] and (filters.start_time or filters.end_time):
+                            if filters.start_time and content_item.publish_time < filters.start_time:
+                                continue
+                            if filters.end_time and content_item.publish_time > filters.end_time:
+                                continue
+                        
                         all_results.append(content_item)
                     except Exception as e:
                         logger.warning(f"转换数据失败: {e}")
