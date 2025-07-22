@@ -204,13 +204,13 @@ def render_header():
 def render_sidebar():
     """渲染侧边栏"""
     with st.sidebar:
-        st.markdown("## 🎛️ 控制面板")
+        # st.markdown("## 🎛️ 控制面板")
         
-        # 数据库连接状态
-        if db_manager.test_connection():
-            st.success("🟢 数据库连接正常")
-        else:
-            st.error("🔴 数据库连接异常")
+        # 数据库连接状态检查（后台进行，不显示UI）
+        # if db_manager.test_connection():
+        #     st.success("🟢 数据库连接正常")
+        # else:
+        #     st.error("🔴 数据库连接异常")
         
         # 获取并显示平台统计
         data_processor = get_data_processor()

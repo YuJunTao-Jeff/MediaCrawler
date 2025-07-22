@@ -164,20 +164,18 @@ class SogouWeixinCrawler(AbstractCrawler):
                     except Exception as e:
                         utils.logger.warning(f"[SogouWeixinCrawler] 断点续爬检查失败: {e}")
                 
-                # 执行搜索
-                articles = await self.sogou_weixin_client.search_articles(
+                # 执行逐页搜索和处理
+                total_processed = await self.sogou_weixin_client.search_and_process_articles(
                     keyword=keyword,
-                    max_pages=self.sogou_weixin_config['max_pages']
+                    max_pages=self.sogou_weixin_config['max_pages'],
+                    process_callback=self._process_single_article
                 )
                 
-                utils.logger.info(f"[SogouWeixinCrawler] 关键词 '{keyword}' 搜索到 {len(articles)} 篇文章")
-                
-                # 处理文章数据
-                await self._process_articles(articles, keyword)
+                utils.logger.info(f"[SogouWeixinCrawler] 关键词 '{keyword}' 总共处理 {total_processed} 篇文章")
                 
                 # 更新断点续爬进度
                 if config.ENABLE_RESUME_CRAWL:
-                    await self.update_crawl_progress(keyword, len(articles))
+                    await self.update_crawl_progress(keyword, total_processed)
                 
                 # 关键词间延迟
                 if len(keywords) > 1:
@@ -255,6 +253,24 @@ class SogouWeixinCrawler(AbstractCrawler):
                 continue
         
         utils.logger.info(f"[SogouWeixinCrawler] 成功处理 {processed_count}/{len(articles)} 篇文章")
+    
+    async def _process_single_article(self, article: WeixinArticle, keyword: str) -> bool:
+        """处理单篇文章"""
+        try:
+            # 提取文章正文内容（如果启用）
+            if self.sogou_weixin_config['extract_original_content'] and article.original_url:
+                content = await self.sogou_weixin_client.extract_article_content(article.original_url)
+                if content:
+                    article.content = content
+            
+            # 存储到数据库
+            await sogou_weixin_store.update_weixin_article(article.model_dump())
+            utils.logger.debug(f"[SogouWeixinCrawler] 文章处理成功: {article.title}")
+            return True
+            
+        except Exception as e:
+            utils.logger.warning(f"[SogouWeixinCrawler] 处理文章失败: {e}")
+            return False
     
     async def launch_browser_with_cdp(self, 
                                     playwright: Playwright,

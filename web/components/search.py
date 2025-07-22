@@ -27,7 +27,7 @@ def render_search_box() -> str:
         del st.session_state.pending_keyword
     else:
         # 设置默认搜索关键词
-        default_keywords = "澳鹏科技"
+        default_keywords = "appen,澳鹏,田小鹏,爱普恩,澳鹏大连,澳鹏无锡,澳鹏科技,澳鹏中国,澳鹏数据,澳鹏重庆"
         initial_value = st.session_state.get('search_keywords', default_keywords)
     
     # 搜索框
@@ -37,10 +37,10 @@ def render_search_box() -> str:
         keywords = st.text_input(
             "搜索关键词",
             value=initial_value,
-            placeholder="搜索关键词 (默认: 澳鹏科技)",
+            placeholder="搜索关键词 (已预设澳鹏相关词汇)",
             key="search_keywords",
             label_visibility="collapsed",
-            help="💡 系统已预设澳鹏科技相关搜索，可直接点击搜索或修改关键词"
+            help="💡 系统已预设澳鹏全系列关键词，可直接搜索或修改"
         )
     
     with col2:

@@ -11,6 +11,7 @@
 
 # -*- coding: utf-8 -*-
 import asyncio
+import random
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
@@ -140,6 +141,97 @@ class SogouWeixinClient(AbstractApiClient):
             utils.logger.error(f"[SogouWeixinClient] 搜索文章失败: {e}")
             raise DataFetchError(f"搜索文章失败: {e}")
     
+    async def search_and_process_articles(self,
+                                        keyword: str,
+                                        max_pages: int = 10,
+                                        process_callback=None) -> int:
+        """
+        逐页搜索并处理微信公众号文章
+        
+        Args:
+            keyword: 搜索关键词
+            max_pages: 最大页数
+            process_callback: 处理单篇文章的回调函数
+            
+        Returns:
+            处理的文章总数
+        """
+        utils.logger.info(f"[SogouWeixinClient] 开始逐页搜索处理文章，关键词: {keyword}")
+        
+        try:
+            # 设置反检测
+            await self.anti_detection_helper.setup_anti_detection()
+            
+            total_processed = 0
+            current_page = 1
+            
+            while current_page <= max_pages and current_page <= self.search_config['max_pages_per_session']:
+                utils.logger.info(f"[SogouWeixinClient] 处理第 {current_page}/{max_pages} 页")
+                
+                # 智能延迟
+                if current_page > 1:
+                    await self.anti_detection_helper.smart_delay()
+                
+                # 构建搜索URL
+                search_url = SOGOU_WEIXIN_URLS['article_search'].format(
+                    keyword=quote(keyword),
+                    page=current_page
+                )
+                
+                # 访问搜索页面
+                await self.playwright_page.goto(search_url, wait_until="networkidle", timeout=self.timeout * 1000)
+                
+                # 检查验证码
+                await self.anti_detection_helper.check_for_captcha()
+                
+                # 模拟用户行为
+                await self.behavior_simulator.simulate_reading_behavior(2.0)
+                
+                # 解析搜索结果
+                articles_data = await SogouWeixinParser.parse_search_results(self.playwright_page)
+                
+                if not articles_data:
+                    utils.logger.info(f"[SogouWeixinClient] 第 {current_page} 页没有找到文章，停止搜索")
+                    break
+                
+                # 逐个处理文章
+                page_processed = 0
+                for article_data in articles_data:
+                    # 转换为WeixinArticle对象
+                    article_data['source_keyword'] = keyword
+                    article = WeixinArticle(**article_data)
+                    
+                    if process_callback:
+                        try:
+                            success = await process_callback(article, keyword)
+                            if success:
+                                page_processed += 1
+                                total_processed += 1
+                        except Exception as e:
+                            utils.logger.warning(f"[SogouWeixinClient] 处理文章失败: {e}")
+                            continue
+                    else:
+                        page_processed += 1
+                        total_processed += 1
+                    
+                    # 文章间延迟
+                    if page_processed % 3 == 0:
+                        await asyncio.sleep(random.uniform(1, 3))
+                
+                utils.logger.info(f"[SogouWeixinClient] 第 {current_page} 页成功处理 {page_processed}/{len(articles_data)} 篇文章")
+                current_page += 1
+            
+            utils.logger.info(f"[SogouWeixinClient] 逐页处理完成，总共处理 {total_processed} 篇文章")
+            return total_processed
+            
+        except CaptchaDetectionError:
+            utils.logger.error(f"[SogouWeixinClient] 遇到验证码，停止处理")
+            return total_processed
+            
+        except Exception as e:
+            utils.logger.error(f"[SogouWeixinClient] 逐页处理失败: {e}")
+            raise DataFetchError(f"逐页处理失败: {e}")
+    
     async def search_accounts(self,
                             keyword: str,
                             max_pages: int = 5) -> List[Dict]:
@@ -205,6 +297,11 @@ class SogouWeixinClient(AbstractApiClient):
         """
         if not self.search_config['extract_original_content']:
             return None
+        
+        # 检查是否建议使用CDP模式
+        use_cdp_for_content = getattr(config, 'SOGOU_WEIXIN_USE_CDP_FOR_CONTENT', True)
+        if use_cdp_for_content and not getattr(config, 'ENABLE_CDP_MODE', False):
+            utils.logger.info("[SogouWeixinClient] 建议启用CDP模式(--cdp_mode true)以避免原文链接的安全验证，提升内容提取成功率")
             
         try:
             utils.logger.debug(f"[SogouWeixinClient] 提取文章内容: {article_url}")
@@ -212,18 +309,27 @@ class SogouWeixinClient(AbstractApiClient):
             # 智能延迟
             await self.anti_detection_helper.smart_delay()
             
-            # 访问文章页面
-            await self.playwright_page.goto(article_url, wait_until="networkidle", timeout=self.timeout * 1000)
+            # 访问文章页面，增加更长的超时时间
+            await self.playwright_page.goto(article_url, wait_until="networkidle", timeout=30000)
             
-            # 等待内容加载
-            await asyncio.sleep(2)
+            # 等待内容加载，使用配置的等待时间
+            content_wait_time = getattr(config, 'SOGOU_WEIXIN_CONTENT_WAIT_TIME', 5)
+            await asyncio.sleep(content_wait_time)
             
-            # 提取文章正文 (微信文章通常在 #js_content 或 .rich_media_content 中)
+            # 提取文章正文 (微信文章可能在多种选择器中)
             content_selectors = [
-                '#js_content',
-                '.rich_media_content', 
-                '.share_article_content',
-                '[data-role="content"]'
+                '#js_content',  # 微信公众号文章主要内容区
+                '.rich_media_content',  # 富媒体内容
+                '.rich_media_content #js_content',  # 嵌套的内容区
+                '[id="js_content"]',  # ID选择器的另一种写法
+                '.weui-article__bd',  # 微信文章内容区
+                '.article-content',  # 通用文章内容类
+                '.content',  # 通用内容类
+                'article',  # HTML5语义标签
+                '.post-content',  # 文章内容
+                '.entry-content',  # 条目内容
+                '[data-role="content"]',  # 数据角色标识
+                'main'  # 主内容区
             ]
             
             content = ""

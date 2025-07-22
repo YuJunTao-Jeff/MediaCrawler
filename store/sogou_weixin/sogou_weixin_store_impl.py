@@ -49,9 +49,13 @@ class SogouWeixinDbStoreImplement(AbstractStore):
             
             # 处理可能为空的字段
             for field in ['content', 'summary', 'account_id', 'cover_image', 
-                         'publish_timestamp', 'read_count', 'like_count']:
+                         'publish_time', 'read_count', 'like_count']:
                 if field not in article_data or article_data[field] is None:
                     article_data[field] = ""
+            
+            # 处理数值字段
+            if 'publish_timestamp' not in article_data or article_data['publish_timestamp'] is None or article_data['publish_timestamp'] == '':
+                article_data['publish_timestamp'] = 0
             
             # 使用item_to_table方法，更简单安全
             await self.mysql_db_var.get().item_to_table("weixin_article", article_data)

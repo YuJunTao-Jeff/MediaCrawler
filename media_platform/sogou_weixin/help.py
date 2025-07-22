@@ -265,6 +265,9 @@ class SogouWeixinParser:
             time_element = await element.query_selector(SOGOU_WEIXIN_SELECTORS['publish_time'])
             publish_time = await time_element.inner_text() if time_element else ""
             
+            # 解析发布时间戳
+            publish_timestamp = SogouWeixinParser._parse_publish_time(publish_time)
+            
             # 封面图片
             cover_element = await element.query_selector(SOGOU_WEIXIN_SELECTORS['cover_image'])
             cover_image = await cover_element.get_attribute('src') if cover_element else ""
@@ -284,12 +287,80 @@ class SogouWeixinParser:
                 'account_name': account_name,
                 'original_url': article_url,
                 'publish_time': publish_time,
+                'publish_timestamp': publish_timestamp,
                 'cover_image': cover_image,
             }
             
         except Exception as e:
             utils.logger.error(f"[SogouWeixinParser] 解析单个文章元素失败: {e}")
             return None
+    
+    @staticmethod
+    def _parse_publish_time(time_str: str) -> int:
+        """
+        解析发布时间字符串为时间戳
+        
+        Args:
+            time_str: 时间字符串，如 "2天前", "昨天", "今天", "2024-01-01"
+            
+        Returns:
+            Unix时间戳（毫秒）
+        """
+        if not time_str or time_str.strip() == "":
+            return 0
+            
+        try:
+            import datetime
+            import re
+            
+            time_str = time_str.strip()
+            now = datetime.datetime.now()
+            
+            # 处理相对时间格式
+            if "分钟前" in time_str:
+                minutes = int(re.findall(r'(\d+)分钟前', time_str)[0])
+                target_time = now - datetime.timedelta(minutes=minutes)
+                
+            elif "小时前" in time_str:
+                hours = int(re.findall(r'(\d+)小时前', time_str)[0])
+                target_time = now - datetime.timedelta(hours=hours)
+                
+            elif "天前" in time_str:
+                days = int(re.findall(r'(\d+)天前', time_str)[0])
+                target_time = now - datetime.timedelta(days=days)
+                
+            elif "昨天" in time_str:
+                target_time = now - datetime.timedelta(days=1)
+                
+            elif "今天" in time_str:
+                target_time = now
+                
+            elif "前天" in time_str:
+                target_time = now - datetime.timedelta(days=2)
+                
+            # 处理绝对时间格式 "2024-01-01" 或 "2024/01/01"
+            elif re.match(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}', time_str):
+                # 替换分隔符为统一格式
+                time_str = re.sub(r'[-/]', '-', time_str)
+                target_time = datetime.datetime.strptime(time_str, '%Y-%m-%d')
+                
+            # 处理带时间的格式 "2024-01-01 12:34"
+            elif re.match(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{1,2}', time_str):
+                time_str = re.sub(r'[-/]', '-', time_str)
+                target_time = datetime.datetime.strptime(time_str, '%Y-%m-%d %H:%M')
+                
+            else:
+                # 无法解析的格式，返回0
+                utils.logger.warning(f"[SogouWeixinParser] 无法解析时间格式: {time_str}")
+                return 0
+            
+            # 转换为毫秒时间戳
+            timestamp = int(target_time.timestamp() * 1000)
+            return timestamp
+            
+        except Exception as e:
+            utils.logger.warning(f"[SogouWeixinParser] 时间解析失败: {time_str}, 错误: {e}")
+            return 0
     
     @staticmethod
     async def check_has_next_page(page: Page) -> Tuple[bool, Optional[str]]:

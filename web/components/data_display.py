@@ -155,7 +155,7 @@ def render_content_card(item: ContentItem, index: int):
             """, unsafe_allow_html=True)
         
         # 底部操作栏
-        bottom_col1, bottom_col2, bottom_col3 = st.columns([2, 1, 1])
+        bottom_col1, bottom_col2 = st.columns([3, 1])
         
         with bottom_col1:
             if item.url:
@@ -169,10 +169,6 @@ def render_content_card(item: ContentItem, index: int):
             if st.button("📊 分析", key=f"analyze_{item.id}", use_container_width=True):
                 show_content_analysis(item)
         
-        with bottom_col3:
-            if st.button("⭐ 收藏", key=f"favorite_{item.id}", use_container_width=True):
-                st.success("已收藏！")
-        
         # 分隔线
         st.markdown("---")
 
@@ -180,23 +176,38 @@ def show_content_analysis(item: ContentItem):
     """显示内容详细分析"""
     with st.expander(f"📊 详细分析 - {truncate_text(item.title, 30)}", expanded=True):
         
-        # 基础信息
-        col1, col2 = st.columns(2)
+        # 基础信息区域
+        st.markdown("### 📋 基础信息")
+        info_col1, info_col2, info_col3, info_col4 = st.columns(4)
         
-        with col1:
-            st.markdown("**基础信息**")
-            st.write(f"平台：{item.platform_name}")
-            st.write(f"发布时间：{item.publish_time.strftime('%Y-%m-%d %H:%M')}")
-            st.write(f"作者：{item.author_name}")
-            st.write(f"互动量：{format_number(item.interaction_count)}")
+        with info_col1:
+            st.metric("平台", item.platform_name)
+        with info_col2:
+            st.metric("作者", truncate_text(item.author_name, 15))
+        with info_col3:
+            st.metric("互动量", format_number(item.interaction_count))
+        with info_col4:
+            st.metric("发布时间", item.publish_time.strftime('%m-%d'))
         
-        with col2:
-            st.markdown("**情感分析**")
-            st.write(f"情感倾向：{get_sentiment_emoji(item.sentiment)} {item.sentiment}")
+        # 情感分析区域
+        st.markdown("### 😊 情感分析")
+        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns([1, 1, 2])
+        
+        with sentiment_col1:
+            sentiment_color = get_sentiment_color(item.sentiment)
+            sentiment_emoji = get_sentiment_emoji(item.sentiment)
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: {sentiment_color}20; border-radius: 8px;">
+                <div style="font-size: 24px;">{sentiment_emoji}</div>
+                <div style="color: {sentiment_color}; font-weight: bold;">{item.sentiment}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with sentiment_col2:
             if item.sentiment_score > 0:
-                st.write(f"情感评分：{item.sentiment_score:.2f}")
+                st.metric("情感评分", f"{item.sentiment_score:.2f}")
             else:
-                st.write("情感评分：暂无")
+                st.metric("情感评分", "暂无")
         
         # AI分析信息展示
         analysis_info = None
@@ -204,37 +215,58 @@ def show_content_analysis(item: ContentItem):
             analysis_info = item._model_instance.get_analysis_info()
         
         if analysis_info:
-            st.markdown("**AI分析详情**")
-            col_analysis1, col_analysis2 = st.columns(2)
+            st.markdown("### 🤖 AI分析详情")
             
-            with col_analysis1:
-                if 'summary' in analysis_info:
-                    st.markdown("📝 **内容摘要**")
-                    st.text_area("", value=analysis_info['summary'], height=100, disabled=True, key=f"summary_{item.id}")
+            # 内容摘要和关键词
+            if 'summary' in analysis_info or ('keywords' in analysis_info and analysis_info['keywords']):
+                summary_col1, summary_col2 = st.columns([2, 1])
                 
-                if 'keywords' in analysis_info and analysis_info['keywords']:
-                    st.markdown("🏷️ **关键词**")
-                    keywords_text = ", ".join(analysis_info['keywords']) if isinstance(analysis_info['keywords'], list) else str(analysis_info['keywords'])
-                    st.text(keywords_text)
+                with summary_col1:
+                    if 'summary' in analysis_info:
+                        st.markdown("**📝 内容摘要**")
+                        st.text_area("", value=analysis_info['summary'], height=80, disabled=True, key=f"summary_{item.id}")
+                
+                with summary_col2:
+                    if 'keywords' in analysis_info and analysis_info['keywords']:
+                        st.markdown("**🏷️ 关键词**")
+                        keywords_text = ", ".join(analysis_info['keywords']) if isinstance(analysis_info['keywords'], list) else str(analysis_info['keywords'])
+                        st.markdown(f"<div style='background-color: #f0f2f6; padding: 8px; border-radius: 6px; font-size: 14px;'>{keywords_text}</div>", unsafe_allow_html=True)
+                    
+                    if 'category' in analysis_info:
+                        st.markdown("**📂 内容分类**")
+                        st.markdown(f"<div style='background-color: #e8f4f8; padding: 8px; border-radius: 6px; font-size: 14px;'>{analysis_info['category']}</div>", unsafe_allow_html=True)
             
-            with col_analysis2:
-                if 'category' in analysis_info:
-                    st.markdown("📂 **内容分类**")
-                    st.text(analysis_info['category'])
+            # 评分和统计信息
+            if 'relevance_score' in analysis_info or ('key_comment_ids' in analysis_info and analysis_info['key_comment_ids']):
+                metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
                 
-                if 'relevance_score' in analysis_info:
-                    st.markdown("🎯 **相关性评分**")
-                    relevance = float(analysis_info['relevance_score'])
-                    st.progress(relevance, text=f"{relevance:.2%}")
+                with metrics_col1:
+                    if 'relevance_score' in analysis_info:
+                        relevance = float(analysis_info['relevance_score'])
+                        st.metric("🎯 相关性评分", f"{relevance:.1%}")
                 
-                if 'key_comment_ids' in analysis_info and analysis_info['key_comment_ids']:
-                    st.markdown("💬 **重点评论**")
-                    st.text(f"共 {len(analysis_info['key_comment_ids'])} 条重点评论")
+                with metrics_col2:
+                    if 'key_comment_ids' in analysis_info and analysis_info['key_comment_ids']:
+                        comment_count = len(analysis_info['key_comment_ids'])
+                        st.metric("💬 重点评论", f"{comment_count} 条")
+                
+                with metrics_col3:
+                    if 'content_length' in analysis_info:
+                        st.metric("📏 内容长度", f"{analysis_info['content_length']} 字")
         
-        # 完整内容
+        # 完整内容区域
         if item.content:
-            st.markdown("**完整内容**")
-            st.text_area("", value=item.content, height=150, disabled=True, key=f"full_content_{item.id}")
+            st.markdown("### 📄 完整内容")
+            with st.container():
+                # 先处理换行符，避免在f-string中使用反斜杠
+                content_html = item.content.replace('\n', '<br>')
+                st.markdown(f"""
+                <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #007bff; max-height: 200px; overflow-y: auto;">
+                    <div style="font-size: 14px; line-height: 1.6; color: #333;">
+                        {content_html}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 def render_content_list(content_items: List[ContentItem], total_count: int, current_page: int, page_size: int):
     """渲染内容列表"""

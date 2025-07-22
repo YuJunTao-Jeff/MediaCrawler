@@ -148,34 +148,46 @@ class ContentItem:
             except:
                 publish_time = datetime(2020, 1, 1)
         elif platform == 'zhihu':
-            # 知乎的时间字段也是字符串格式，需要尝试多种格式
+            # 知乎的时间字段是Unix时间戳字符串格式
             try:
                 if isinstance(publish_time_value, str) and publish_time_value.strip():
-                    # 尝试多种时间格式
-                    time_formats = [
-                        '%Y-%m-%d %H:%M:%S',
-                        '%Y-%m-%d',
-                        '%Y-%m-%d %H:%M',
-                        '%m-%d %H:%M',  # 可能的格式
-                        '%Y年%m月%d日 %H:%M',  # 中文格式
-                        '%Y年%m月%d日',
-                    ]
-                    
-                    parsed = False
-                    for time_format in time_formats:
-                        try:
-                            publish_time = datetime.strptime(publish_time_value.strip(), time_format)
-                            parsed = True
-                            break
-                        except:
-                            continue
-                    
-                    if not parsed:
-                        # 尝试解析相对时间，如"3天前", "1小时前"
-                        publish_time = parse_relative_time(publish_time_value)
-                        if publish_time is None:
-                            # 如果都解析失败，返回一个较早的默认时间而不是当前时间
-                            publish_time = datetime(2020, 1, 1)
+                    # 首先尝试Unix时间戳
+                    try:
+                        timestamp = int(publish_time_value.strip())
+                        # 知乎使用10位时间戳（秒级）
+                        if len(str(timestamp)) == 10:
+                            publish_time = datetime.fromtimestamp(timestamp)
+                        # 如果是13位时间戳（毫秒级）
+                        elif len(str(timestamp)) == 13:
+                            publish_time = datetime.fromtimestamp(timestamp / 1000)
+                        else:
+                            # 尝试其他格式
+                            raise ValueError("不是标准时间戳格式")
+                    except (ValueError, OSError):
+                        # 如果不是时间戳，尝试其他时间格式
+                        time_formats = [
+                            '%Y-%m-%d %H:%M:%S',
+                            '%Y-%m-%d',
+                            '%Y-%m-%d %H:%M',
+                            '%m-%d %H:%M',
+                            '%Y年%m月%d日 %H:%M',
+                            '%Y年%m月%d日',
+                        ]
+                        
+                        parsed = False
+                        for time_format in time_formats:
+                            try:
+                                publish_time = datetime.strptime(publish_time_value.strip(), time_format)
+                                parsed = True
+                                break
+                            except:
+                                continue
+                        
+                        if not parsed:
+                            # 尝试解析相对时间
+                            publish_time = parse_relative_time(publish_time_value)
+                            if publish_time is None:
+                                publish_time = datetime(2020, 1, 1)
                 else:
                     publish_time = datetime(2020, 1, 1)
             except:
@@ -394,14 +406,28 @@ class DataQueryService:
                     title_field = field_mapping.get('title')
                     content_field = field_mapping.get('content')
                     
-                    search_conditions = []
-                    if title_field and hasattr(model, title_field):
-                        search_conditions.append(getattr(model, title_field).contains(filters.keywords))
-                    if content_field and hasattr(model, content_field):
-                        search_conditions.append(getattr(model, content_field).contains(filters.keywords))
+                    # 支持逗号和空格分割的关键词
+                    keywords = []
+                    for part in filters.keywords.replace(',', ' ').split():
+                        keyword = part.strip()
+                        if keyword:
+                            keywords.append(keyword)
                     
-                    if search_conditions:
-                        query = query.filter(or_(*search_conditions))
+                    # 为每个关键词创建搜索条件
+                    keyword_conditions = []
+                    for keyword in keywords:
+                        search_conditions = []
+                        if title_field and hasattr(model, title_field):
+                            search_conditions.append(getattr(model, title_field).contains(keyword))
+                        if content_field and hasattr(model, content_field):
+                            search_conditions.append(getattr(model, content_field).contains(keyword))
+                        
+                        if search_conditions:
+                            keyword_conditions.append(or_(*search_conditions))
+                    
+                    if keyword_conditions:
+                        # 使用OR条件，只要包含任一关键词即可
+                        query = query.filter(or_(*keyword_conditions))
                 
                 # 情感筛选
                 if filters.sentiment and filters.sentiment != 'all':
@@ -541,11 +567,39 @@ class DataQueryService:
                 continue
             
             try:
-                # 构建基础查询
+                # 使用MySQL兼容的JSON语法
                 query = self.session.query(
-                    func.json_extract(model.analysis_info, '$.sentiment').label('sentiment'),
+                    func.JSON_EXTRACT(model.analysis_info, '$.sentiment').label('sentiment'),
                     func.count().label('count')
                 )
+                
+                # 关键词筛选
+                if filters.keywords:
+                    field_mapping = get_field_mapping(platform)
+                    # 支持逗号和空格分割的关键词
+                    keywords = []
+                    for part in filters.keywords.replace(',', ' ').split():
+                        keywords.append(part.strip())
+                    
+                    keyword_conditions = []
+                    for keyword in keywords:
+                        keyword = keyword.strip()
+                        if keyword:
+                            # 在标题和内容中搜索关键词
+                            title_field = field_mapping.get('title')
+                            content_field = field_mapping.get('content')
+                            
+                            conditions = []
+                            if title_field and hasattr(model, title_field):
+                                conditions.append(getattr(model, title_field).like(f'%{keyword}%'))
+                            if content_field and hasattr(model, content_field):
+                                conditions.append(getattr(model, content_field).like(f'%{keyword}%'))
+                            
+                            if conditions:
+                                keyword_conditions.append(or_(*conditions))
+                    
+                    if keyword_conditions:
+                        query = query.filter(or_(*keyword_conditions))
                 
                 # 时间筛选
                 time_field = get_field_mapping(platform)['publish_time']
@@ -557,9 +611,12 @@ class DataQueryService:
                     end_ts = int(filters.end_time.timestamp() * 1000)
                     query = query.filter(getattr(model, time_field) <= end_ts)
                 
+                # 过滤掉analysis_info为NULL的记录
+                query = query.filter(model.analysis_info.isnot(None))
+                
                 # 分组统计
                 results = query.group_by(
-                    func.json_extract(model.analysis_info, '$.sentiment')
+                    func.JSON_EXTRACT(model.analysis_info, '$.sentiment')
                 ).all()
                 
                 for sentiment, count in results:
