@@ -53,11 +53,8 @@ class SogouWeixinDbStoreImplement(AbstractStore):
                 if field not in article_data or article_data[field] is None:
                     article_data[field] = ""
             
-            # 执行SQL
-            await self.mysql_db_var.get().execute(
-                SogouWeixinStoreSql.INSERT_WEIXIN_ARTICLE,
-                article_data
-            )
+            # 使用item_to_table方法，更简单安全
+            await self.mysql_db_var.get().item_to_table("weixin_article", article_data)
             
             utils.logger.debug(f"[SogouWeixinDbStoreImplement] 文章已存储: {article_data.get('title', 'Unknown')}")
             

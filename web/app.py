@@ -41,14 +41,14 @@ def load_custom_css():
     <style>
     /* 主要样式 */
     .main {
-        padding-top: 2rem;
+        padding-top: 1rem;
     }
     
     /* 标题样式 */
     .main-header {
         background: linear-gradient(90deg, #1f77b4, #ff7f0e);
-        padding: 1.5rem;
-        margin: -1rem -1rem 2rem -1rem;
+        padding: 1rem;
+        margin: -1rem -1rem 1rem -1rem;
         border-radius: 0 0 10px 10px;
         color: white;
         text-align: center;
@@ -69,38 +69,38 @@ def load_custom_css():
     /* 卡片样式 */
     .metric-card {
         background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-left: 4px solid #1f77b4;
-        margin-bottom: 1rem;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border-left: 3px solid #1f77b4;
+        margin-bottom: 0.8rem;
     }
     
     /* 搜索框样式 */
     .search-container {
         background: #f8f9fa;
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin-bottom: 1.5rem;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
         border: 1px solid #e9ecef;
     }
     
     /* 筛选器样式 */
     .filter-section {
         background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        margin-bottom: 1rem;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        margin-bottom: 0.8rem;
     }
     
     /* 内容卡片样式 */
     .content-card {
         background: white;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        margin-bottom: 1.5rem;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
         border: 1px solid #e9ecef;
         transition: box-shadow 0.3s ease;
     }
@@ -196,7 +196,7 @@ def render_header():
     """渲染页面头部"""
     st.markdown("""
     <div class="main-header">
-        <h1>📊 MediaCrawler 监控平台</h1>
+        <h1>📊 媒体数据监控平台</h1>
         <p>多平台社交媒体数据监控与分析系统</p>
     </div>
     """, unsafe_allow_html=True)

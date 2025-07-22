@@ -16,7 +16,7 @@ from web.database.queries import SearchFilters
 
 def render_platform_filter() -> List[str]:
     """渲染平台筛选组件"""
-    st.subheader("📱 平台筛选")
+    st.caption("📱 **平台筛选**")
     
     # 获取平台统计（如果有的话）
     platform_stats = st.session_state.get('platform_stats', {})
@@ -59,12 +59,12 @@ def render_platform_filter() -> List[str]:
 
 def render_time_filter() -> Tuple[datetime, datetime]:
     """渲染时间筛选组件"""
-    st.subheader("⏰ 时间筛选")
+    st.caption("⏰ **时间筛选**")
     
     # 快捷时间选项
     time_range = st.selectbox(
         "时间范围",
-        options=["自定义", "今天", "昨天", "最近3天", "最近7天", "最近30天"],
+        options=["自定义", "今天", "昨天", "最近3天", "最近7天", "最近30天", "最近90天", "最近半年", "最近一年", "全部时间"],
         index=4,  # 默认选择最近7天
         key="time_range_select"
     )
@@ -87,12 +87,26 @@ def render_time_filter() -> Tuple[datetime, datetime]:
     elif time_range == "最近30天":
         start_time = now - timedelta(days=30)
         end_time = now
+    elif time_range == "最近90天":
+        start_time = now - timedelta(days=90)
+        end_time = now
+    elif time_range == "最近半年":
+        start_time = now - timedelta(days=180)
+        end_time = now
+    elif time_range == "最近一年":
+        start_time = now - timedelta(days=365)
+        end_time = now
+    elif time_range == "全部时间":
+        start_time = datetime(2020, 1, 1)  # 设置一个较早的开始时间
+        end_time = now
     else:  # 自定义
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input(
                 "开始日期",
                 value=now.date() - timedelta(days=7),
+                min_value=datetime(2020, 1, 1).date(),  # 设置最小日期为2020年
+                max_value=now.date(),
                 key="start_date"
             )
             start_time_input = st.time_input(
@@ -123,7 +137,7 @@ def render_time_filter() -> Tuple[datetime, datetime]:
 
 def render_sentiment_filter() -> str:
     """渲染情感筛选组件"""
-    st.subheader("😊 情感筛选")
+    st.caption("😊 **情感筛选**")
     
     # 获取情感分布统计（如果有的话）
     sentiment_stats = st.session_state.get('sentiment_stats', {})
@@ -159,7 +173,7 @@ def render_sentiment_filter() -> str:
 
 def render_search_options() -> Tuple[str, str]:
     """渲染搜索选项"""
-    st.subheader("🔍 排序和显示")
+    st.caption("🔍 **排序和显示**")
     
     col1, col2 = st.columns(2)
     

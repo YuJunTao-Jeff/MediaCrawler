@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 def render_search_box() -> str:
     """渲染搜索框组件"""
-    st.subheader("🔎 内容搜索")
+    st.markdown("### 🔎 内容搜索")
     
     # 处理待添加的关键词
     initial_value = ""
@@ -26,7 +26,9 @@ def render_search_box() -> str:
         # 清除pending_keyword
         del st.session_state.pending_keyword
     else:
-        initial_value = st.session_state.get('search_keywords', '')
+        # 设置默认搜索关键词
+        default_keywords = "澳鹏科技"
+        initial_value = st.session_state.get('search_keywords', default_keywords)
     
     # 搜索框
     col1, col2 = st.columns([4, 1])
@@ -35,9 +37,10 @@ def render_search_box() -> str:
         keywords = st.text_input(
             "搜索关键词",
             value=initial_value,
-            placeholder="输入搜索关键词，支持多个关键词用空格分隔",
+            placeholder="搜索关键词 (默认: 澳鹏科技)",
             key="search_keywords",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            help="💡 系统已预设澳鹏科技相关搜索，可直接点击搜索或修改关键词"
         )
     
     with col2:
@@ -74,10 +77,10 @@ def render_search_box() -> str:
 def render_keyword_suggestions() -> List[str]:
     """渲染关键词建议"""
     
-    # 热门关键词（可以从数据库获取）
+    # 热门关键词（优先显示澳鹏相关）
     hot_keywords = [
-        "澳鹏科技", "人工智能", "数据标注", "机器学习", 
-        "数字化转型", "技术创新", "AI训练", "数据服务"
+        "澳鹏科技", "澳鹏", "appen", "澳鹏数据", 
+        "人工智能", "数据标注", "机器学习", "AI训练"
     ]
     
     st.caption("💡 热门关键词")

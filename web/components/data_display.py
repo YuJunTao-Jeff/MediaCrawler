@@ -60,7 +60,7 @@ def get_sentiment_emoji(sentiment: str) -> str:
     }
     return emojis.get(sentiment, '❓')
 
-def truncate_text(text: str, max_length: int = 100) -> str:
+def truncate_text(text: str, max_length: int = 200) -> str:
     """截断文本"""
     if not text:
         return ""
@@ -89,11 +89,11 @@ def render_content_card(item: ContentItem, index: int):
             }.get(item.platform, '#6c757d')
             
             st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                <span style="background-color: {platform_color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-right: 8px;">
+            <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                <span style="background-color: {platform_color}; color: white; padding: 1px 6px; border-radius: 8px; font-size: 10px; margin-right: 6px;">
                     {item.platform_name}
                 </span>
-                <span style="color: #666; font-size: 12px;">
+                <span style="color: #666; font-size: 10px;">
                     {format_time_ago(item.publish_time)}
                 </span>
             </div>
@@ -141,16 +141,16 @@ def render_content_card(item: ContentItem, index: int):
         # 标题
         if item.title:
             st.markdown(f"""
-            <h4 style="margin: 10px 0; color: #333; font-size: 16px; line-height: 1.4;">
-                {truncate_text(item.title, 80)}
+            <h4 style="margin: 6px 0 4px 0; color: #333; font-size: 14px; line-height: 1.3;">
+                {truncate_text(item.title, 100)}
             </h4>
             """, unsafe_allow_html=True)
         
         # 内容摘要
         if item.content:
             st.markdown(f"""
-            <p style="color: #666; font-size: 14px; line-height: 1.5; margin: 8px 0;">
-                {truncate_text(item.content, 150)}
+            <p style="color: #666; font-size: 12px; line-height: 1.4; margin: 4px 0 6px 0;">
+                {truncate_text(item.content, 300)}
             </p>
             """, unsafe_allow_html=True)
         
