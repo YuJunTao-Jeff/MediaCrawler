@@ -68,6 +68,36 @@ def truncate_text(text: str, max_length: int = 200) -> str:
         return text
     return text[:max_length] + "..."
 
+def get_like_count(item: ContentItem) -> int:
+    """获取各平台的点赞数"""
+    if not hasattr(item, '_model_instance') or not item._model_instance:
+        return 0
+    
+    try:
+        model_instance = item._model_instance
+        platform = item.platform
+        
+        # 各平台点赞字段映射
+        like_fields = {
+            'xhs': 'liked_count',
+            'douyin': 'liked_count', 
+            'kuaishou': 'liked_count',
+            'bilibili': 'liked_count',
+            'weibo': 'liked_count',
+            'tieba': 'total_replay_num',  # 贴吧使用回复数作为互动指标
+            'zhihu': 'voteup_count',      # 知乎使用赞同数
+            'news': 'word_count'          # 新闻使用字数
+        }
+        
+        field_name = like_fields.get(platform)
+        if field_name:
+            like_count = getattr(model_instance, field_name, 0) or 0
+            return int(like_count)
+    except (ValueError, TypeError, AttributeError):
+        return 0
+    
+    return 0
+
 def render_content_card(item: ContentItem, index: int):
     """渲染单个内容卡片 - 简洁风格"""
     
@@ -111,7 +141,12 @@ def render_content_card(item: ContentItem, index: int):
         }.get(item.sentiment, '未知')
         metadata_parts.append(f"{sentiment_emoji} {sentiment_text}")
         
-        # 互动数量
+        # 点赞数
+        like_count = get_like_count(item)
+        if like_count > 0:
+            metadata_parts.append(f"👍 {format_number(like_count)}")
+        
+        # 总互动数量
         if item.interaction_count > 0:
             metadata_parts.append(f"💬 {format_number(item.interaction_count)}")
         

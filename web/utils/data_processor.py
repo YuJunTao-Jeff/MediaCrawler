@@ -153,10 +153,6 @@ class WebDataProcessor:
         if filters.start_time and filters.end_time:
             if filters.start_time > filters.end_time:
                 return False, "开始时间不能大于结束时间"
-            
-            # 检查时间范围是否过大（超过1年）
-            if filters.end_time - filters.start_time > timedelta(days=365):
-                return False, "时间范围不能超过1年"
         
         # 检查分页参数
         if filters.page < 1:

@@ -8,7 +8,7 @@ from typing import Dict, Any
 # Web应用配置
 WEB_CONFIG = {
     # 应用基础配置
-    'app_title': 'MediaCrawler 监控平台',
+    'app_title': '媒体数据监控平台',
     'app_icon': '📊',
     'app_layout': 'wide',
     'sidebar_state': 'expanded',
