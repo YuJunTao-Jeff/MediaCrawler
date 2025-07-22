@@ -154,19 +154,11 @@ def render_content_card(item: ContentItem, index: int):
                 
                 # 展开按钮和AI分析信息
                 if analysis_lines:
-                    # 简单的展开/收起按钮
-                    expand_key = f"expand_analysis_{item.id}"
-                    is_expanded = st.session_state.get(expand_key, False)
-                    
-                    if st.button(f"{'↑收起' if is_expanded else '↓展开'} AI分析", key=expand_key, use_container_width=False):
-                        st.session_state[expand_key] = not is_expanded
-                        st.rerun()
-                    
-                    # 根据展开状态显示分析信息
-                    if is_expanded:
+                    # 使用expander作为简洁的展开方式
+                    with st.expander("AI分析", expanded=False):
                         analysis_text = "<br>".join(analysis_lines)
                         st.markdown(f"""
-                        <div style="color: #70757a; font-size: 12px; margin: 8px 0; line-height: 1.4; background-color: #f8f9fa; padding: 8px; border-radius: 4px;">
+                        <div style="color: #70757a; font-size: 12px; line-height: 1.4;">
                             {analysis_text}
                         </div>
                         """, unsafe_allow_html=True)

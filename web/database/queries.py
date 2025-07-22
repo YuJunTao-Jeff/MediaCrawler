@@ -73,6 +73,7 @@ class SearchFilters:
     page_size: int = 20
     sort_by: str = 'time'
     sort_order: str = 'desc'
+    noise_filter: str = 'all'  # 噪音过滤: all, filter_noise, only_noise
     
     def __post_init__(self):
         if self.platforms is None:
@@ -461,6 +462,27 @@ class DataQueryService:
                                 continue
                             if filters.end_time and content_item.publish_time > filters.end_time:
                                 continue
+                        
+                        # 噪音过滤逻辑 - 基于analysis_info中的相关性评分
+                        if filters.noise_filter != 'all':
+                            relevance_score = None
+                            if hasattr(content_item, '_model_instance') and content_item._model_instance:
+                                analysis_info = content_item._model_instance.get_analysis_info()
+                                if analysis_info and 'relevance_score' in analysis_info:
+                                    try:
+                                        relevance_score = float(analysis_info['relevance_score'])
+                                    except (ValueError, TypeError):
+                                        relevance_score = None
+                            
+                            # 根据过滤选项决定是否包含此条结果
+                            if filters.noise_filter == 'filter_noise':
+                                # 过滤噪音：只保留相关性评分 > 0.6 的内容
+                                if relevance_score is None or relevance_score <= 0.6:
+                                    continue
+                            elif filters.noise_filter == 'only_noise':
+                                # 仅显示噪音：只保留相关性评分 <= 0.6 的内容或无评分的内容
+                                if relevance_score is not None and relevance_score > 0.6:
+                                    continue
                         
                         all_results.append(content_item)
                     except Exception as e:

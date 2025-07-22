@@ -114,6 +114,15 @@ PLATFORM_TABLES = {
         "comment_content_field": None,
         "parent_id_field": None,
     },
+    "news": {
+        "main_table": "news_article",
+        "comment_table": None,  # 新闻文章平台无评论系统
+        "main_id_field": "article_id",
+        "comment_id_field": None,
+        "content_fields": ["title", "summary", "content"],
+        "comment_content_field": None,
+        "parent_id_field": None,
+    },
 }
 
 # 日志配置

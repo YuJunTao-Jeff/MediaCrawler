@@ -348,8 +348,8 @@ def main():
             # 搜索提示
             render_search_tips()
         
-        # 关键词建议
-        render_keyword_suggestions()
+        # # 关键词建议
+        # render_keyword_suggestions()
         
         # 筛选器区域
         st.markdown("## 🎯 筛选条件")

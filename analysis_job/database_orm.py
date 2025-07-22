@@ -168,6 +168,21 @@ class WeixinArticle(Base):
     analysis_info = Column(JSON)
     source_keyword = Column(String(255))
 
+class NewsArticle(Base):
+    __tablename__ = 'news_article'
+    
+    id = Column(Integer, primary_key=True)
+    article_id = Column(String(128), nullable=False)
+    title = Column(String(500))
+    summary = Column(Text)
+    content = Column(LONGTEXT)
+    source_url = Column(String(1000), nullable=False)
+    source_domain = Column(String(255))
+    source_site = Column(String(255))
+    add_ts = Column(BigInteger)
+    analysis_info = Column(JSON)
+    source_keyword = Column(String(64))
+
 # 平台模型映射
 PLATFORM_MODELS = {
     'xhs': {'main': XhsNote, 'comment': XhsNoteComment, 'id_field': 'note_id'},
@@ -178,6 +193,7 @@ PLATFORM_MODELS = {
     'tieba': {'main': TiebaNote, 'comment': TiebaComment, 'id_field': 'note_id'},
     'zhihu': {'main': ZhihuContent, 'comment': ZhihuComment, 'id_field': 'content_id'},
     'sogou_weixin': {'main': WeixinArticle, 'comment': None, 'id_field': 'article_id'},
+    'news': {'main': NewsArticle, 'comment': None, 'id_field': 'article_id'},
 }
 
 class DatabaseManager:

@@ -201,7 +201,20 @@ def render_search_options() -> Tuple[str, str]:
         key="page_size_select"
     )
     
-    return sort_by, sort_order, page_size
+    # 噪音过滤选项
+    noise_filter = st.selectbox(
+        "噪音过滤",
+        options=["all", "filter_noise", "only_noise"],
+        format_func=lambda x: {
+            "all": "显示全部",
+            "filter_noise": "过滤噪音",
+            "only_noise": "仅显示噪音"
+        }[x],
+        index=0,  # 默认显示全部
+        key="noise_filter_select"
+    )
+    
+    return sort_by, sort_order, page_size, noise_filter
 
 def render_advanced_filters():
     """渲染高级筛选选项"""
@@ -260,7 +273,7 @@ def create_search_filters() -> SearchFilters:
     platforms = render_platform_filter()
     start_time, end_time = render_time_filter()
     sentiment = render_sentiment_filter()
-    sort_by, sort_order, page_size = render_search_options()
+    sort_by, sort_order, page_size, noise_filter = render_search_options()
     
     # 获取当前页码
     current_page = st.session_state.get('current_page', 1)
@@ -273,5 +286,6 @@ def create_search_filters() -> SearchFilters:
         page=current_page,
         page_size=page_size,
         sort_by=sort_by,
-        sort_order=sort_order
+        sort_order=sort_order,
+        noise_filter=noise_filter
     )
