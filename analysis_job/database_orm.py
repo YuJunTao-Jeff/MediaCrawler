@@ -155,6 +155,19 @@ class ZhihuComment(Base):
     content = Column(LONGTEXT)
     add_ts = Column(BigInteger)
 
+class WeixinArticle(Base):
+    __tablename__ = 'weixin_article'
+    
+    id = Column(Integer, primary_key=True)
+    article_id = Column(String(128), nullable=False)
+    title = Column(String(500))
+    summary = Column(Text)
+    content = Column(LONGTEXT)
+    account_name = Column(String(255), nullable=False)
+    add_ts = Column(BigInteger)
+    analysis_info = Column(JSON)
+    source_keyword = Column(String(255))
+
 # 平台模型映射
 PLATFORM_MODELS = {
     'xhs': {'main': XhsNote, 'comment': XhsNoteComment, 'id_field': 'note_id'},
@@ -164,6 +177,7 @@ PLATFORM_MODELS = {
     'ks': {'main': KuaishouVideo, 'comment': KuaishouVideoComment, 'id_field': 'video_id'},
     'tieba': {'main': TiebaNote, 'comment': TiebaComment, 'id_field': 'note_id'},
     'zhihu': {'main': ZhihuContent, 'comment': ZhihuComment, 'id_field': 'content_id'},
+    'sogou_weixin': {'main': WeixinArticle, 'comment': None, 'id_field': 'article_id'},
 }
 
 class DatabaseManager:
@@ -217,9 +231,13 @@ class DatabaseManager:
                     title = row.title
                     content_parts.append(row.title)
                 
+                # 根据不同平台的字段结构处理内容
                 if hasattr(row, 'desc') and row.desc:
                     content_parts.append(row.desc)
-                elif hasattr(row, 'content') and row.content:
+                elif hasattr(row, 'summary') and row.summary:
+                    content_parts.append(row.summary)
+                    
+                if hasattr(row, 'content') and row.content:
                     content_parts.append(row.content)
                 
                 content = " ".join(content_parts) if content_parts else ""
@@ -278,25 +296,30 @@ class DatabaseManager:
                 title = main_content.title
                 content_parts.append(main_content.title)
             
+            # 根据不同平台的字段结构处理内容
             if hasattr(main_content, 'desc') and main_content.desc:
                 content_parts.append(main_content.desc)
-            elif hasattr(main_content, 'content') and main_content.content:
+            elif hasattr(main_content, 'summary') and main_content.summary:
+                content_parts.append(main_content.summary)
+                
+            if hasattr(main_content, 'content') and main_content.content:
                 content_parts.append(main_content.content)
             
             content = " ".join(content_parts) if content_parts else ""
             
-            # 获取所有评论
-            comments = session.query(CommentModel).filter(
-                getattr(CommentModel, id_field) == content_id
-            ).order_by(CommentModel.add_ts.desc()).all()
-            
+            # 获取所有评论（如果平台支持评论）
             comment_list = []
-            for comment in comments:
-                if comment.content:
-                    comment_list.append({
-                        'comment_id': comment.comment_id,
-                        'content': comment.content
-                    })
+            if CommentModel is not None:
+                comments = session.query(CommentModel).filter(
+                    getattr(CommentModel, id_field) == content_id
+                ).order_by(CommentModel.add_ts.desc()).all()
+                
+                for comment in comments:
+                    if comment.content:
+                        comment_list.append({
+                            'comment_id': comment.comment_id,
+                            'content': comment.content
+                        })
             
             # 获取源关键词
             source_keyword = ""

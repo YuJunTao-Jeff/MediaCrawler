@@ -76,14 +76,14 @@ async def init_table_schema():
     Returns:
 
     """
-    utils.logger.info("[init_table_schema] begin init mysql table schema ...")
-    await init_mediacrawler_db()
-    async_db_obj: AsyncMysqlDB = media_crawler_db_var.get()
-    async with aiofiles.open("schema/tables.sql", mode="r", encoding="utf-8") as f:
-        schema_sql = await f.read()
-        await async_db_obj.execute(schema_sql)
-        utils.logger.info("[init_table_schema] mediacrawler table schema init successful")
-        await close()
+    # utils.logger.info("[init_table_schema] begin init mysql table schema ...")
+    # await init_mediacrawler_db()
+    # async_db_obj: AsyncMysqlDB = media_crawler_db_var.get()
+    # async with aiofiles.open("schema/tables.sql", mode="r", encoding="utf-8") as f:
+    #     schema_sql = await f.read()
+    #     await async_db_obj.execute(schema_sql)
+    #     utils.logger.info("[init_table_schema] mediacrawler table schema init successful")
+    #     await close()
 
 
 if __name__ == '__main__':

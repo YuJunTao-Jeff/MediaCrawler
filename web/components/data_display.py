@@ -69,115 +69,123 @@ def truncate_text(text: str, max_length: int = 200) -> str:
     return text[:max_length] + "..."
 
 def render_content_card(item: ContentItem, index: int):
-    """渲染单个内容卡片"""
+    """渲染单个内容卡片 - 简洁风格"""
     
-    # 创建卡片容器
     with st.container():
-        # 顶部信息栏
-        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-        
-        with col1:
-            # 平台标签和标题
-            platform_color = {
-                'xhs': '#FF2442',
-                'douyin': '#000000', 
-                'kuaishou': '#FF6600',
-                'bilibili': '#FB7299',
-                'weibo': '#E6162D',
-                'tieba': '#4E6EF2',
-                'zhihu': '#0084FF'
-            }.get(item.platform, '#6c757d')
-            
-            st.markdown(f"""
-            <div style="display: flex; align-items: center; margin-bottom: 4px;">
-                <span style="background-color: {platform_color}; color: white; padding: 1px 6px; border-radius: 8px; font-size: 10px; margin-right: 6px;">
-                    {item.platform_name}
-                </span>
-                <span style="color: #666; font-size: 10px;">
-                    {format_time_ago(item.publish_time)}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            # 情感标签
-            sentiment_color = get_sentiment_color(item.sentiment)
-            sentiment_emoji = get_sentiment_emoji(item.sentiment)
-            sentiment_text = {
-                'positive': '正面',
-                'negative': '负面',
-                'neutral': '中性', 
-                'unknown': '未知'
-            }.get(item.sentiment, '未知')
-            
-            st.markdown(f"""
-            <div style="text-align: center;">
-                <span style="color: {sentiment_color}; font-size: 16px;">{sentiment_emoji}</span>
-                <br>
-                <span style="color: {sentiment_color}; font-size: 12px;">{sentiment_text}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            # 互动数据
-            st.markdown(f"""
-            <div style="text-align: center;">
-                <span style="font-size: 18px; font-weight: bold; color: #FF6B6B;">❤️</span>
-                <br>
-                <span style="font-size: 12px; color: #666;">{format_number(item.interaction_count)}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col4:
-            # 作者信息
-            st.markdown(f"""
-            <div style="text-align: center;">
-                <span style="font-size: 16px;">👤</span>
-                <br>
-                <span style="font-size: 12px; color: #666;">{truncate_text(item.author_name, 10)}</span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # 标题
+        # 标题行 - 占满整行
         if item.title:
             st.markdown(f"""
-            <h4 style="margin: 6px 0 4px 0; color: #333; font-size: 14px; line-height: 1.3;">
-                {truncate_text(item.title, 100)}
-            </h4>
+            <h3 style="margin: 0; color: #1a73e8; font-size: 16px; font-weight: 600; line-height: 1.4;">
+                <a href="{item.url}" target="_blank" style="color: #1a73e8; text-decoration: none;">
+                    {truncate_text(item.title, 120)}
+                </a>
+            </h3>
             """, unsafe_allow_html=True)
         
-        # 内容摘要
+        # 内容摘要 - 增加更多预览文字
         if item.content:
             st.markdown(f"""
-            <p style="color: #666; font-size: 12px; line-height: 1.4; margin: 4px 0 6px 0;">
-                {truncate_text(item.content, 300)}
+            <p style="color: #5f6368; font-size: 14px; line-height: 1.5; margin: 8px 0 12px 0;">
+                {truncate_text(item.content, 350)}
             </p>
             """, unsafe_allow_html=True)
         
-        # 底部操作栏
-        bottom_col1, bottom_col2 = st.columns([3, 1])
+        # 底部元信息行 - 所有次要信息放在一行，适当使用emoji增强可读性
+        metadata_parts = []
         
-        with bottom_col1:
-            if item.url:
-                st.markdown(f"""
-                <a href="{item.url}" target="_blank" style="color: #007bff; text-decoration: none; font-size: 12px;">
-                    🔗 查看原文
-                </a>
-                """, unsafe_allow_html=True)
+        # 发布日期
+        metadata_parts.append(f"🕒 {item.publish_time.strftime('%Y-%m-%d %H:%M')}")
         
-        with bottom_col2:
-            if st.button("📊 分析", key=f"analyze_{item.id}", use_container_width=True):
-                show_content_analysis(item)
+        # 来源平台  
+        metadata_parts.append(f"📱 {item.platform_name}")
         
-        # 分隔线
-        st.markdown("---")
+        # 作者
+        if item.author_name:
+            metadata_parts.append(f"👤 {truncate_text(item.author_name, 15)}")
+        
+        # 情感分析 - 使用简单的emoji
+        sentiment_emoji = get_sentiment_emoji(item.sentiment)
+        sentiment_text = {
+            'positive': '正面', 'negative': '负面', 
+            'neutral': '中性', 'unknown': '未知'
+        }.get(item.sentiment, '未知')
+        metadata_parts.append(f"{sentiment_emoji} {sentiment_text}")
+        
+        # 互动数量
+        if item.interaction_count > 0:
+            metadata_parts.append(f"💬 {format_number(item.interaction_count)}")
+        
+        # AI相关性评分（如果有）
+        if hasattr(item, '_model_instance') and item._model_instance:
+            analysis_info = item._model_instance.get_analysis_info()
+            if analysis_info and 'relevance_score' in analysis_info:
+                try:
+                    relevance = float(analysis_info['relevance_score'])
+                    metadata_parts.append(f"🎯 {relevance:.0%}")
+                except:
+                    pass
+        
+        # 渲染元信息行
+        metadata_text = " | ".join(metadata_parts)
+        st.markdown(f"""
+        <div style="color: #70757a; font-size: 12px; margin: 8px 0; line-height: 1.3;">
+            {metadata_text}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # AI分析信息展示（如果有analysis_info数据）
+        if hasattr(item, '_model_instance') and item._model_instance:
+            analysis_info = item._model_instance.get_analysis_info()
+            if analysis_info:
+                analysis_lines = []
+                
+                # 内容摘要
+                if 'summary' in analysis_info and analysis_info['summary']:
+                    analysis_lines.append(f"• 摘要: {analysis_info['summary']}")
+                
+                # 关键词
+                if 'keywords' in analysis_info and analysis_info['keywords']:
+                    keywords_text = ", ".join(analysis_info['keywords']) if isinstance(analysis_info['keywords'], list) else str(analysis_info['keywords'])
+                    analysis_lines.append(f"• 关键词: {keywords_text}")
+                
+                # 内容分类
+                if 'category' in analysis_info and analysis_info['category']:
+                    analysis_lines.append(f"• 分类: {analysis_info['category']}")
+                
+                # 展开按钮和AI分析信息
+                if analysis_lines:
+                    # 简单的展开/收起按钮
+                    expand_key = f"expand_analysis_{item.id}"
+                    is_expanded = st.session_state.get(expand_key, False)
+                    
+                    if st.button(f"{'↑收起' if is_expanded else '↓展开'} AI分析", key=expand_key, use_container_width=False):
+                        st.session_state[expand_key] = not is_expanded
+                        st.rerun()
+                    
+                    # 根据展开状态显示分析信息
+                    if is_expanded:
+                        analysis_text = "<br>".join(analysis_lines)
+                        st.markdown(f"""
+                        <div style="color: #70757a; font-size: 12px; margin: 8px 0; line-height: 1.4; background-color: #f8f9fa; padding: 8px; border-radius: 4px;">
+                            {analysis_text}
+                        </div>
+                        """, unsafe_allow_html=True)
+        
+        # 简单分隔线
+        st.markdown('<hr style="margin: 16px 0; border: 0; border-top: 1px solid #e8eaed;">', unsafe_allow_html=True)
 
 def show_content_analysis(item: ContentItem):
     """显示内容详细分析"""
-    with st.expander(f"📊 详细分析 - {truncate_text(item.title, 30)}", expanded=True):
-        
-        # 基础信息区域
-        st.markdown("### 📋 基础信息")
+    # 使用container替代expander，获得更宽的展示空间
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; margin: 20px 0;">
+        <h3 style="color: white; margin: 0; text-align: center;">📊 内容分析 - {truncate_text(item.title, 50)}</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    with st.container():
+        # 基础信息区域 - 紧凑展示
+        st.markdown("#### 📋 基础信息")
         info_col1, info_col2, info_col3, info_col4 = st.columns(4)
         
         with info_col1:
@@ -187,27 +195,29 @@ def show_content_analysis(item: ContentItem):
         with info_col3:
             st.metric("互动量", format_number(item.interaction_count))
         with info_col4:
-            st.metric("发布时间", item.publish_time.strftime('%m-%d'))
+            st.metric("发布时间", item.publish_time.strftime('%Y-%m-%d'))
         
-        # 情感分析区域
-        st.markdown("### 😊 情感分析")
-        sentiment_col1, sentiment_col2, sentiment_col3 = st.columns([1, 1, 2])
+        st.markdown("---")
+        
+        # 情感分析区域 - 简化布局
+        st.markdown("#### 😊 情感分析")
+        sentiment_col1, sentiment_col2 = st.columns([1, 2])
         
         with sentiment_col1:
             sentiment_color = get_sentiment_color(item.sentiment)
             sentiment_emoji = get_sentiment_emoji(item.sentiment)
             st.markdown(f"""
-            <div style="text-align: center; padding: 10px; background-color: {sentiment_color}20; border-radius: 8px;">
-                <div style="font-size: 24px;">{sentiment_emoji}</div>
-                <div style="color: {sentiment_color}; font-weight: bold;">{item.sentiment}</div>
+            <div style="text-align: center; padding: 12px; background-color: {sentiment_color}20; border-radius: 8px; border: 2px solid {sentiment_color}40;">
+                <div style="font-size: 24px; margin-bottom: 5px;">{sentiment_emoji}</div>
+                <div style="color: {sentiment_color}; font-weight: bold; font-size: 14px;">{item.sentiment}</div>
             </div>
             """, unsafe_allow_html=True)
         
         with sentiment_col2:
             if item.sentiment_score > 0:
-                st.metric("情感评分", f"{item.sentiment_score:.2f}")
+                st.metric("情感评分", f"{item.sentiment_score:.2f}", help="AI分析得出的情感倾向评分")
             else:
-                st.metric("情感评分", "暂无")
+                st.metric("情感评分", "暂无数据")
         
         # AI分析信息展示
         analysis_info = None
@@ -215,58 +225,58 @@ def show_content_analysis(item: ContentItem):
             analysis_info = item._model_instance.get_analysis_info()
         
         if analysis_info:
-            st.markdown("### 🤖 AI分析详情")
+            st.markdown("---")
+            st.markdown("#### 🤖 AI分析结果")
             
-            # 内容摘要和关键词
-            if 'summary' in analysis_info or ('keywords' in analysis_info and analysis_info['keywords']):
-                summary_col1, summary_col2 = st.columns([2, 1])
-                
-                with summary_col1:
-                    if 'summary' in analysis_info:
-                        st.markdown("**📝 内容摘要**")
-                        st.text_area("", value=analysis_info['summary'], height=80, disabled=True, key=f"summary_{item.id}")
-                
-                with summary_col2:
-                    if 'keywords' in analysis_info and analysis_info['keywords']:
-                        st.markdown("**🏷️ 关键词**")
-                        keywords_text = ", ".join(analysis_info['keywords']) if isinstance(analysis_info['keywords'], list) else str(analysis_info['keywords'])
-                        st.markdown(f"<div style='background-color: #f0f2f6; padding: 8px; border-radius: 6px; font-size: 14px;'>{keywords_text}</div>", unsafe_allow_html=True)
-                    
-                    if 'category' in analysis_info:
-                        st.markdown("**📂 内容分类**")
-                        st.markdown(f"<div style='background-color: #e8f4f8; padding: 8px; border-radius: 6px; font-size: 14px;'>{analysis_info['category']}</div>", unsafe_allow_html=True)
-            
-            # 评分和统计信息
-            if 'relevance_score' in analysis_info or ('key_comment_ids' in analysis_info and analysis_info['key_comment_ids']):
-                metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
-                
-                with metrics_col1:
-                    if 'relevance_score' in analysis_info:
-                        relevance = float(analysis_info['relevance_score'])
-                        st.metric("🎯 相关性评分", f"{relevance:.1%}")
-                
-                with metrics_col2:
-                    if 'key_comment_ids' in analysis_info and analysis_info['key_comment_ids']:
-                        comment_count = len(analysis_info['key_comment_ids'])
-                        st.metric("💬 重点评论", f"{comment_count} 条")
-                
-                with metrics_col3:
-                    if 'content_length' in analysis_info:
-                        st.metric("📏 内容长度", f"{analysis_info['content_length']} 字")
-        
-        # 完整内容区域
-        if item.content:
-            st.markdown("### 📄 完整内容")
-            with st.container():
-                # 先处理换行符，避免在f-string中使用反斜杠
-                content_html = item.content.replace('\n', '<br>')
+            # 内容摘要 - 全宽显示
+            if 'summary' in analysis_info and analysis_info['summary']:
+                st.markdown("**📝 内容摘要**")
                 st.markdown(f"""
-                <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #007bff; max-height: 200px; overflow-y: auto;">
-                    <div style="font-size: 14px; line-height: 1.6; color: #333;">
-                        {content_html}
-                    </div>
+                <div style="background-color: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 4px solid #28a745; margin-bottom: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                    <div style="font-size: 13px; line-height: 1.5; color: #333;">{analysis_info['summary']}</div>
                 </div>
                 """, unsafe_allow_html=True)
+            
+            # 分析标签 - 3列布局
+            tags_col1, tags_col2, tags_col3 = st.columns(3)
+            
+            with tags_col1:
+                if 'keywords' in analysis_info and analysis_info['keywords']:
+                    st.markdown("**🏷️ 关键词**")
+                    keywords_text = ", ".join(analysis_info['keywords']) if isinstance(analysis_info['keywords'], list) else str(analysis_info['keywords'])
+                    st.markdown(f"""
+                    <div style="background-color: #e3f2fd; padding: 10px; border-radius: 6px; font-size: 12px; min-height: 50px; border: 1px solid #bbdefb; line-height: 1.4; overflow-wrap: break-word;">
+                        {keywords_text}
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            with tags_col2:
+                if 'category' in analysis_info and analysis_info['category']:
+                    st.markdown("**📂 内容分类**")
+                    st.markdown(f"""
+                    <div style="background-color: #f3e5f5; padding: 10px; border-radius: 6px; font-size: 12px; min-height: 50px; text-align: center; display: flex; align-items: center; justify-content: center; border: 1px solid #e1bee7;">
+                        <strong style="color: #6a1b9a;">{analysis_info['category']}</strong>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            with tags_col3:
+                if 'relevance_score' in analysis_info:
+                    relevance = float(analysis_info['relevance_score'])
+                    st.markdown("**🎯 相关性评分**")
+                    # 创建相关性可视化
+                    color = "#28a745" if relevance >= 0.7 else "#ffc107" if relevance >= 0.4 else "#dc3545"
+                    bg_color = "#d4edda" if relevance >= 0.7 else "#fff3cd" if relevance >= 0.4 else "#f8d7da"
+                    st.markdown(f"""
+                    <div style="background-color: {bg_color}; padding: 10px; border-radius: 6px; font-size: 12px; min-height: 50px; text-align: center; display: flex; align-items: center; justify-content: center; border: 1px solid {color}40;">
+                        <div style="color: {color}; font-weight: bold; font-size: 16px;">{relevance:.1%}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.info("📋 该内容暂无AI分析数据")
+    
+    # 添加关闭按钮
+    if st.button("❌ 关闭分析", key=f"close_analysis_{item.id}", use_container_width=True):
+        st.rerun()
 
 def render_content_list(content_items: List[ContentItem], total_count: int, current_page: int, page_size: int):
     """渲染内容列表"""

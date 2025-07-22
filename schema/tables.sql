@@ -613,6 +613,7 @@ CREATE TABLE `weixin_article` (
     `read_count` varchar(32) DEFAULT NULL COMMENT '阅读数',
     `like_count` varchar(32) DEFAULT NULL COMMENT '点赞数',
     `source_keyword` varchar(255) DEFAULT NULL COMMENT '搜索关键词',
+    `analysis_info` json DEFAULT NULL COMMENT 'AI分析结果',
     `add_ts` bigint NOT NULL COMMENT '记录添加时间戳',
     `last_modify_ts` bigint NOT NULL COMMENT '记录最后修改时间戳',
     PRIMARY KEY (`id`),

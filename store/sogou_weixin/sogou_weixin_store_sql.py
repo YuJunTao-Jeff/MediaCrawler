@@ -19,11 +19,11 @@ class SogouWeixinStoreSql:
         INSERT INTO weixin_article (
             article_id, title, content, summary, account_name, account_id,
             cover_image, original_url, publish_time, publish_timestamp,
-            read_count, like_count, source_keyword, add_ts, last_modify_ts
+            read_count, like_count, source_keyword, analysis_info, add_ts, last_modify_ts
         ) VALUES (
             %(article_id)s, %(title)s, %(content)s, %(summary)s, %(account_name)s, %(account_id)s,
             %(cover_image)s, %(original_url)s, %(publish_time)s, %(publish_timestamp)s,
-            %(read_count)s, %(like_count)s, %(source_keyword)s, %(add_ts)s, %(last_modify_ts)s
+            %(read_count)s, %(like_count)s, %(source_keyword)s, %(analysis_info)s, %(add_ts)s, %(last_modify_ts)s
         ) ON DUPLICATE KEY UPDATE
             title = VALUES(title),
             content = VALUES(content),
@@ -36,6 +36,7 @@ class SogouWeixinStoreSql:
             read_count = VALUES(read_count),
             like_count = VALUES(like_count),
             source_keyword = VALUES(source_keyword),
+            analysis_info = VALUES(analysis_info),
             last_modify_ts = VALUES(last_modify_ts)
     """
     
@@ -84,11 +85,11 @@ class SogouWeixinStoreSql:
         INSERT INTO weixin_article (
             article_id, title, content, summary, account_name, account_id,
             cover_image, original_url, publish_time, publish_timestamp,
-            read_count, like_count, source_keyword, add_ts, last_modify_ts
+            read_count, like_count, source_keyword, analysis_info, add_ts, last_modify_ts
         ) VALUES (
             %(article_id)s, %(title)s, %(content)s, %(summary)s, %(account_name)s, %(account_id)s,
             %(cover_image)s, %(original_url)s, %(publish_time)s, %(publish_timestamp)s,
-            %(read_count)s, %(like_count)s, %(source_keyword)s, %(add_ts)s, %(last_modify_ts)s
+            %(read_count)s, %(like_count)s, %(source_keyword)s, %(analysis_info)s, %(add_ts)s, %(last_modify_ts)s
         ) ON DUPLICATE KEY UPDATE
             title = VALUES(title),
             content = VALUES(content),
@@ -101,5 +102,6 @@ class SogouWeixinStoreSql:
             read_count = VALUES(read_count),
             like_count = VALUES(like_count),
             source_keyword = VALUES(source_keyword),
+            analysis_info = VALUES(analysis_info),
             last_modify_ts = VALUES(last_modify_ts)
     """

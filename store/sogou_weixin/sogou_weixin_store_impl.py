@@ -57,6 +57,10 @@ class SogouWeixinDbStoreImplement(AbstractStore):
             if 'publish_timestamp' not in article_data or article_data['publish_timestamp'] is None or article_data['publish_timestamp'] == '':
                 article_data['publish_timestamp'] = 0
             
+            # 处理analysis_info字段
+            if 'analysis_info' not in article_data or article_data['analysis_info'] is None:
+                article_data['analysis_info'] = None
+            
             # 使用item_to_table方法，更简单安全
             await self.mysql_db_var.get().item_to_table("weixin_article", article_data)
             
