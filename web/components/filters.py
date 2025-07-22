@@ -355,7 +355,7 @@ def create_search_filters() -> SearchFilters:
             start_time = now - timedelta(days=365)
             end_time = now
         elif time_range == "全部时间":
-            start_time = datetime(2020, 1, 1)  # 设置一个较早的开始时间
+            start_time = datetime(2010, 1, 1)  # 设置一个更早的开始时间，覆盖所有可能的数据
             end_time = now
         else:  # 自定义
             start_date = st.date_input(

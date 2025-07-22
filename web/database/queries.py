@@ -202,10 +202,16 @@ class ContentItem:
                     publish_time = datetime.now()
             except:
                 publish_time = datetime.now()
-        else:
-            # 其他平台使用时间戳
+        elif platform == 'xhs':
+            # 小红书使用毫秒级时间戳
             try:
                 publish_time = datetime.fromtimestamp(publish_time_value / 1000)
+            except:
+                publish_time = datetime.now()
+        else:
+            # 其他平台（抖音、B站、微博等）使用秒级时间戳
+            try:
+                publish_time = datetime.fromtimestamp(publish_time_value)
             except:
                 publish_time = datetime.now()
         
@@ -391,14 +397,23 @@ class DataQueryService:
                         query = query.filter(getattr(model, time_field) >= filters.start_time)
                     if filters.end_time:
                         query = query.filter(getattr(model, time_field) <= filters.end_time)
-                else:
-                    # 其他平台使用时间戳筛选
+                elif platform == 'xhs':
+                    # 小红书使用毫秒级时间戳
                     if filters.start_time:
                         start_ts = int(filters.start_time.timestamp() * 1000)
                         query = query.filter(getattr(model, time_field) >= start_ts)
                     
                     if filters.end_time:
                         end_ts = int(filters.end_time.timestamp() * 1000)
+                        query = query.filter(getattr(model, time_field) <= end_ts)
+                else:
+                    # 其他平台（抖音、B站、微博等）使用秒级时间戳
+                    if filters.start_time:
+                        start_ts = int(filters.start_time.timestamp())
+                        query = query.filter(getattr(model, time_field) >= start_ts)
+                    
+                    if filters.end_time:
+                        end_ts = int(filters.end_time.timestamp())
                         query = query.filter(getattr(model, time_field) <= end_ts)
                 
                 # 关键词搜索
