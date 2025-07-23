@@ -319,13 +319,10 @@ def render_content_list(content_items: List[ContentItem], total_count: int, curr
         """)
         return
     
-    # 显示结果统计
+    # 显示结果统计 - 小字体版本
     st.markdown(f"""
-    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-        <h3 style="margin: 0; color: #333;">📊 搜索结果</h3>
-        <p style="margin: 5px 0 0 0; color: #666;">
-            共找到 <strong>{total_count:,}</strong> 条内容，当前显示第 <strong>{current_page}</strong> 页
-        </p>
+    <div style="color: #666; font-size: 18px; margin: 8px 0; line-height: 1.4;">
+        📊 搜索结果：共找到 <strong>{total_count:,}</strong> 条内容，当前显示第 <strong>{current_page}</strong> 页
     </div>
     """, unsafe_allow_html=True)
     
@@ -386,8 +383,6 @@ def render_statistics_overview(content_items: List[ContentItem]):
     if not content_items:
         return
     
-    st.markdown("### 📈 数据概览")
-    
     # 计算统计数据
     platform_stats = {}
     sentiment_stats = {'positive': 0, 'negative': 0, 'neutral': 0, 'unknown': 0}
@@ -403,25 +398,20 @@ def render_statistics_overview(content_items: List[ContentItem]):
         # 互动统计
         total_interaction += item.interaction_count
     
-    # 显示统计卡片
-    col1, col2, col3, col4 = st.columns(4)
+    # 计算比例和平均值
+    positive_rate = sentiment_stats['positive'] / len(content_items) * 100 if sentiment_stats['positive'] > 0 else 0
+    avg_interaction = total_interaction / len(content_items) if content_items else 0
     
-    with col1:
-        st.metric("总内容数", f"{len(content_items):,}")
-    
-    with col2:
-        st.metric("总互动量", format_number(total_interaction))
-    
-    with col3:
-        if sentiment_stats['positive'] > 0:
-            positive_rate = sentiment_stats['positive'] / len(content_items) * 100
-            st.metric("正面内容比例", f"{positive_rate:.1f}%")
-        else:
-            st.metric("正面内容比例", "0%")
-    
-    with col4:
-        avg_interaction = total_interaction / len(content_items) if content_items else 0
-        st.metric("平均互动量", format_number(int(avg_interaction)))
+    # 使用小字体显示数据概览
+    st.markdown(f"""
+    <div style="color: #666; font-size: 18px; margin: 8px 0; line-height: 1.4;">
+        📈 <strong>数据概览</strong> | 
+        总内容数 <strong>{len(content_items):,}</strong> | 
+        总互动量 <strong>{format_number(total_interaction)}</strong> | 
+        正面内容比例 <strong>{positive_rate:.1f}%</strong> | 
+        平均互动量 <strong>{format_number(int(avg_interaction))}</strong>
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_empty_state():
     """渲染空状态页面"""

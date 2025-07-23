@@ -119,35 +119,34 @@ def render_search_history():
 
 def render_search_stats(total_results: int, search_time: float, content_items=None):
     """渲染搜索统计信息"""
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("搜索结果", f"{total_results:,} 条")
-    
-    with col2:
-        st.metric("搜索用时", f"{search_time:.2f} 秒")
-    
-    with col3:
-        if total_results > 0 and content_items:
-            # 计算实际的平均相关度
-            relevance_scores = []
-            for item in content_items:
-                if hasattr(item, '_model_instance') and item._model_instance:
-                    analysis_info = item._model_instance.get_analysis_info()
-                    if analysis_info and 'relevance_score' in analysis_info:
-                        try:
-                            score = float(analysis_info['relevance_score'])
-                            relevance_scores.append(score)
-                        except:
-                            pass
-            
-            if relevance_scores:
-                avg_relevance = sum(relevance_scores) / len(relevance_scores)
-                st.metric("平均相关度", f"{avg_relevance:.1%}")
-            else:
-                st.metric("平均相关度", "暂无")
+    # 计算平均相关度
+    avg_relevance_text = "-"
+    if total_results > 0 and content_items:
+        relevance_scores = []
+        for item in content_items:
+            if hasattr(item, '_model_instance') and item._model_instance:
+                analysis_info = item._model_instance.get_analysis_info()
+                if analysis_info and 'relevance_score' in analysis_info:
+                    try:
+                        score = float(analysis_info['relevance_score'])
+                        relevance_scores.append(score)
+                    except:
+                        pass
+        
+        if relevance_scores:
+            avg_relevance = sum(relevance_scores) / len(relevance_scores)
+            avg_relevance_text = f"{avg_relevance:.1%}"
         else:
-            st.metric("平均相关度", "-")
+            avg_relevance_text = "暂无"
+    
+    # 使用小字体显示统计信息
+    st.markdown(f"""
+    <div style="color: #666; font-size: 18px; margin: 8px 0; line-height: 1.4;">
+        搜索结果 <strong>{total_results:,}</strong> 条 | 
+        搜索用时 <strong>{search_time:.2f}</strong> 秒 | 
+        平均相关度 <strong>{avg_relevance_text}</strong>
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_search_tips():
     """渲染搜索提示"""
